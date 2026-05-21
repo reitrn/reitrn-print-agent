@@ -252,12 +252,29 @@
       padding-bottom: 4px;
     }
 
-    input[type="text"].agent-name-input {
+    /* ── Agent name edit-in-place ── */
+    .agent-name-display {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .agent-name-edit-row {
+      display: none;          /* hidden until Edit is clicked */
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .agent-name-edit-row input {
+      flex: 1;
       font-size: 12px;
       padding: 6px 10px;
-      width: 160px;
-      flex: none;
     }
+    .btn-cancel {
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .btn-cancel:hover { background: var(--border); }
   </style>
 </head>
 <body>
@@ -327,13 +344,24 @@
     <div class="card">
       <div class="card-label">Settings</div>
 
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Agent name</div>
-          <div class="setting-sub">Identifies this PC</div>
+      <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:0;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <div class="setting-label">Station name</div>
+            <div class="setting-sub">Identifies this PC to the reitrn app</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="agent-name-display" id="agentNameDisplay">Warehouse PC</span>
+            <button class="btn btn-surface" id="agentEditBtn" onclick="startEditName()"
+              style="padding:4px 10px;font-size:11px;">Edit</button>
+          </div>
         </div>
-        <input type="text" class="agent-name-input" id="agentName" placeholder="Warehouse PC"
-          onchange="saveAgentName(this.value)" />
+        <!-- Edit row — shown only when Edit is clicked -->
+        <div class="agent-name-edit-row" id="agentNameEditRow">
+          <input type="text" id="agentNameInput" placeholder="Warehouse PC" />
+          <button class="btn btn-teal" onclick="confirmEditName()" style="padding:6px 12px;">Save</button>
+          <button class="btn btn-cancel" onclick="cancelEditName()" style="padding:6px 10px;">✕</button>
+        </div>
       </div>
 
       <div class="setting-row">
@@ -376,7 +404,7 @@
     window.reitrn.getState().then((state) => {
       setStatus(state.status);
       setPrinters(state.printers, state.courierPrinter, state.barcodePrinter);
-      document.getElementById('agentName').value = state.agentName || '';
+      document.getElementById('agentNameDisplay').textContent = state.agentName || 'Warehouse PC';
       document.getElementById('autoStart').checked = state.autoStart !== false;
       renderJobs(state.recentJobs || []);
     });
@@ -463,9 +491,32 @@
 
     // ── Settings ───────────────────────────────────────────────────────────────
 
-    function saveAgentName(name) {
-      window.reitrn.setAgentName(name);
+    function startEditName() {
+      const current = document.getElementById('agentNameDisplay').textContent;
+      document.getElementById('agentNameInput').value = current;
+      document.getElementById('agentNameEditRow').style.display = 'flex';
+      document.getElementById('agentEditBtn').style.display = 'none';
+      document.getElementById('agentNameInput').focus();
+      document.getElementById('agentNameInput').select();
     }
+
+    function cancelEditName() {
+      document.getElementById('agentNameEditRow').style.display = 'none';
+      document.getElementById('agentEditBtn').style.display = '';
+    }
+
+    async function confirmEditName() {
+      const newName = document.getElementById('agentNameInput').value.trim() || 'Warehouse PC';
+      document.getElementById('agentNameDisplay').textContent = newName;
+      cancelEditName();
+      await window.reitrn.setAgentName(newName);
+    }
+
+    // Allow Enter to confirm, Escape to cancel in the edit input
+    document.getElementById('agentNameInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter')  confirmEditName();
+      if (e.key === 'Escape') cancelEditName();
+    });
 
     function saveAutoStart(enabled) {
       window.reitrn.setAutoStart(enabled);

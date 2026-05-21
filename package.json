@@ -21,7 +21,8 @@
     "copyright": "reitrn.",
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "artifactName": "reitrn-Print-Agent-Setup.exe"
     },
     "nsis": {
       "oneClick": true,

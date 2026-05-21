@@ -313,17 +313,24 @@ function buildTSPL(label, widthMm, heightMm) {
   return lines.join('\r\n');
 }
 
-function renderJob(job) {
+function detectLang(printerName) {
+  // TSC printer names typically contain TSC, TE2xx, TP2xx, TTP etc.
+  // Everything else (Zebra, GK, ZD, ZT, LP) is ZPL.
+  const name = (printerName || '').toUpperCase();
+  if (name.includes('TSC') || name.includes('TTP') || /\bTE\d/.test(name) || /\bTP\d/.test(name)) {
+    return 'tspl';
+  }
+  return 'zpl';
+}
+
+function renderJob(job, printerName) {
   // Legacy jobs have pre-rendered `data` string — pass through as-is
   if (job.data) return job.data;
 
-  // New jobs have structured `labelData` — render in the language configured for this printer
-  const role   = job.printerRole || 'barcode';
-  const lang   = role === 'courier'
-    ? (store.get('courierLang', 'zpl'))
-    : (store.get('barcodeLang', 'zpl'));
-
+  // New jobs have structured `labelData` — detect language from printer name
+  const lang   = detectLang(printerName);
   const label  = job.labelData || {};
+  const role   = job.printerRole || 'barcode';
   const width  = role === 'courier' ? 101.6 : 62;
   const height = role === 'courier' ? 152.4 : 35;
 
@@ -354,7 +361,7 @@ function startAgent() {
         return { success: false, error: `No ${role} printer configured` };
       }
 
-      const data = renderJob(job);
+      const data = renderJob(job, printerName);
       addRecentJob({ id: job.id, printer: printerName, printerRole: role, status: 'printing', time: new Date() });
 
       try {
@@ -399,8 +406,6 @@ ipcMain.handle('get-state', () => ({
   printers: getInstalledPrinters(),
   courierPrinter: store.get('courierPrinter', ''),
   barcodePrinter: store.get('barcodePrinter', ''),
-  courierLang: store.get('courierLang', 'zpl'),
-  barcodeLang: store.get('barcodeLang', 'zpl'),
   agentName: store.get('agentName', 'Warehouse PC'),
   autoStart: store.get('autoStart', true),
   recentJobs,
@@ -416,15 +421,6 @@ ipcMain.handle('set-barcode-printer', (_, name) => {
   return true;
 });
 
-ipcMain.handle('set-courier-lang', (_, lang) => {
-  store.set('courierLang', lang);
-  return true;
-});
-
-ipcMain.handle('set-barcode-lang', (_, lang) => {
-  store.set('barcodeLang', lang);
-  return true;
-});
 
 ipcMain.handle('set-agent-name', (_, name) => {
   store.set('agentName', name.trim() || 'Warehouse PC');

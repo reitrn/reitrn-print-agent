@@ -300,10 +300,6 @@
             <option value="">Select a printer…</option>
           </select>
         </div>
-        <div style="display:flex;gap:6px;margin-bottom:6px;">
-          <button id="courierZpl"  class="lang-btn lang-btn-active" onclick="setLang('courier','zpl')">ZPL</button>
-          <button id="courierTspl" class="lang-btn"                 onclick="setLang('courier','tspl')">TSPL</button>
-        </div>
         <button class="btn btn-teal" id="testCourierBtn" onclick="testPrint('courier')" style="width:100%">
           Test Courier Print
         </button>
@@ -318,10 +314,6 @@
           <select id="barcodeSelect" style="flex:1;">
             <option value="">Select a printer…</option>
           </select>
-        </div>
-        <div style="display:flex;gap:6px;margin-bottom:6px;">
-          <button id="barcodeZpl"  class="lang-btn lang-btn-active" onclick="setLang('barcode','zpl')">ZPL</button>
-          <button id="barcodeTspl" class="lang-btn"                 onclick="setLang('barcode','tspl')">TSPL</button>
         </div>
         <button class="btn btn-teal" id="testBarcodeBtn" onclick="testPrint('barcode')" style="width:100%">
           Test Barcode Print
@@ -387,8 +379,6 @@
       document.getElementById('agentName').value = state.agentName || '';
       document.getElementById('autoStart').checked = state.autoStart !== false;
       renderJobs(state.recentJobs || []);
-      applyLang('courier', state.courierLang || 'zpl');
-      applyLang('barcode', state.barcodeLang || 'zpl');
     });
 
     window.reitrn.onStatusUpdate((status) => setStatus(status));
@@ -439,20 +429,6 @@
       setPrinters(printers, courierPrinter, barcodePrinter);
     }
 
-    // ── Language toggles ───────────────────────────────────────────────────────
-
-    function applyLang(role, lang) {
-      const zplBtn  = document.getElementById(`${role}Zpl`);
-      const tsplBtn = document.getElementById(`${role}Tspl`);
-      zplBtn.className  = 'lang-btn' + (lang === 'zpl'  ? ' lang-btn-active' : '');
-      tsplBtn.className = 'lang-btn' + (lang === 'tspl' ? ' lang-btn-active' : '');
-    }
-
-    function setLang(role, lang) {
-      applyLang(role, lang);
-      if (role === 'courier') window.reitrn.setCourierLang(lang);
-      else                    window.reitrn.setBarcodeLang(lang);
-    }
 
     // ── Test print ─────────────────────────────────────────────────────────────
 

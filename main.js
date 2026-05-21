@@ -71,7 +71,7 @@ function createWindow() {
     resizable: false,
     title: 'reitrn Print Agent',
     backgroundColor: '#FFFFFF',
-    icon: path.join(__dirname, 'assets', nativeTheme.shouldUseDarkColors ? 'icon-light.ico' : 'icon-dark.ico'),
+    icon: path.join(__dirname, 'assets', nativeTheme.shouldUseDarkColors ? 'icon-dark.ico' : 'icon-light.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -97,8 +97,8 @@ function createWindow() {
 // ── Tray ───────────────────────────────────────────────────────────────────────
 
 function getTrayIcon() {
-  // Dark taskbar → use light/white icon; light taskbar → use dark/black icon
-  const variant = nativeTheme.shouldUseDarkColors ? 'tray-light' : 'tray-dark';
+  // Dark taskbar → tray-dark.ico (white R); light taskbar → tray-light.ico (black R)
+  const variant = nativeTheme.shouldUseDarkColors ? 'tray-dark' : 'tray-light';
   const iconPath = path.join(__dirname, 'assets', `${variant}.ico`);
   try {
     const icon = nativeImage.createFromPath(iconPath);

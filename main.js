@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, nativeTheme } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 const { startListening, stopListening } = require('./firebase-listener');
@@ -39,6 +39,13 @@ app.on('ready', () => {
   createTray();
   createWindow();
   startAgent();
+
+  // Swap tray icon automatically when user changes Windows light/dark theme
+  nativeTheme.on('updated', () => {
+    if (tray && !tray.isDestroyed()) {
+      tray.setImage(getTrayIcon());
+    }
+  });
 
   // Auto-launch with Windows
   app.setLoginItemSettings({
@@ -89,26 +96,28 @@ function createWindow() {
 
 // ── Tray ───────────────────────────────────────────────────────────────────────
 
-function createTray() {
-  // .ico is more reliable than .png for Windows system tray icons
-  const iconPath = path.join(__dirname, 'assets', 'tray.ico');
-  let icon;
+function getTrayIcon() {
+  // Use white icon on dark taskbar, dark icon on light taskbar
+  const variant = nativeTheme.shouldUseDarkColors ? 'tray-dark' : 'tray-light';
+  const iconPath = path.join(__dirname, 'assets', `${variant}.ico`);
   try {
-    icon = nativeImage.createFromPath(iconPath);
-    if (icon.isEmpty()) {
-      console.warn('[Tray] Icon loaded but is empty — check assets/tray.png exists');
-      icon = nativeImage.createEmpty();
-    } else {
-      // Resize to standard Windows tray icon size
-      icon = icon.resize({ width: 16, height: 16 });
-      console.log('[Tray] Icon loaded OK from', iconPath);
+    const icon = nativeImage.createFromPath(iconPath);
+    if (!icon.isEmpty()) {
+      console.log(`[Tray] Loaded ${variant}.ico (dark mode: ${nativeTheme.shouldUseDarkColors})`);
+      return icon.resize({ width: 16, height: 16 });
     }
-  } catch (e) {
-    console.warn('[Tray] Failed to load icon:', e.message);
-    icon = nativeImage.createEmpty();
-  }
+  } catch {}
+  // Fallback to generic tray.ico if themed versions don't exist yet
+  try {
+    const fallback = nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.ico'));
+    if (!fallback.isEmpty()) return fallback.resize({ width: 16, height: 16 });
+  } catch {}
+  console.warn('[Tray] No icon found — using empty');
+  return nativeImage.createEmpty();
+}
 
-  tray = new Tray(icon);
+function createTray() {
+  tray = new Tray(getTrayIcon());
   tray.setToolTip('reitrn Print Agent');
   updateTrayMenu();
 

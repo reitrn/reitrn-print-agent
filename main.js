@@ -85,7 +85,7 @@ function createWindow() {
 // ── Tray ───────────────────────────────────────────────────────────────────────
 
 function createTray() {
-  const iconPath = path.join(__dirname, 'assets', 'reintrn logo 32x32.png');
+  const iconPath = path.join(__dirname, 'assets', 'tray.png');
   let icon;
   try {
     icon = nativeImage.createFromPath(iconPath);

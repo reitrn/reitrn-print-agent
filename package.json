@@ -5,18 +5,15 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "postinstall": "electron-rebuild",
     "build": "electron-builder --win"
   },
   "dependencies": {
-    "@thiagoelg/node-printer": "^0.0.1",
     "electron-store": "^8.2.0",
     "firebase": "^10.12.2"
   },
   "devDependencies": {
     "electron": "^28.3.3",
-    "electron-builder": "^24.13.3",
-    "electron-rebuild": "^3.2.9"
+    "electron-builder": "^24.13.3"
   },
   "build": {
     "appId": "com.reitrn.print-agent",

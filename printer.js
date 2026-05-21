@@ -62,9 +62,46 @@ function printRaw(printerName, data) {
         },
       });
     } else {
-      // Fallback: write to temp file and send via PowerShell
-      printViaPowerShell(printerName, data).then(resolve).catch(reject);
+      // Fallback: try simple copy /b first, then WinSpool P/Invoke
+      printViaCopy(printerName, data)
+        .then(resolve)
+        .catch((copyErr) => {
+          console.warn('[Printer] copy /b failed, trying WinSpool:', copyErr.message);
+          printViaPowerShell(printerName, data).then(resolve).catch(reject);
+        });
     }
+  });
+}
+
+/**
+ * Simplest raw print: write data to a temp file, then `copy /b file \\localhost\PrinterName`.
+ * Works for any Windows printer that accepts raw data. No P/Invoke needed.
+ */
+function printViaCopy(printerName, data) {
+  return new Promise((resolve, reject) => {
+    const { execFile } = require('child_process');
+    const fs   = require('fs');
+    const os   = require('os');
+    const path = require('path');
+
+    const dataFile = path.join(os.tmpdir(), `reitrn_${Date.now()}.prn`);
+    fs.writeFileSync(dataFile, Buffer.from(data, 'utf8'));
+
+    const dest = `\\\\localhost\\${printerName}`;
+    console.log(`[Printer] copy /b "${dataFile}" "${dest}"`);
+
+    execFile('cmd', ['/c', 'copy', '/b', dataFile, dest], { timeout: 15000 }, (err, stdout, stderr) => {
+      try { fs.unlinkSync(dataFile); } catch {}
+      if (stdout) console.log('[Printer] copy stdout:', stdout.trim());
+      if (stderr) console.warn('[Printer] copy stderr:', stderr.trim());
+      if (err) {
+        console.error('[Printer] copy /b failed:', err.message);
+        reject(err);
+      } else {
+        console.log(`[Printer] copy /b succeeded for "${printerName}"`);
+        resolve();
+      }
+    });
   });
 }
 
@@ -140,6 +177,9 @@ Write-Host "Done"
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psFile],
       { timeout: 30000 },
       (err, stdout, stderr) => {
+        // Always log PS output so we can see exactly what happened
+        if (stdout) console.log('[Printer] PS stdout:', stdout.trim());
+        if (stderr) console.warn('[Printer] PS stderr:', stderr.trim());
         try { fs.unlinkSync(dataFile); } catch {}
         try { fs.unlinkSync(psFile);   } catch {}
         if (err) reject(new Error(stderr || err.message));

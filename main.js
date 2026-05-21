@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, nativeTheme } = require('electron');
 const path = require('path');
+const http = require('http');
 const Store = require('electron-store');
 const { startListening, stopListening } = require('./firebase-listener');
 const { getInstalledPrinters, printRaw } = require('./printer');
@@ -60,6 +61,7 @@ app.on('window-all-closed', (e) => {
 
 app.on('before-quit', () => {
   stopListening();
+  if (localServer) localServer.close();
 });
 
 // ── Theme helpers ──────────────────────────────────────────────────────────────
@@ -169,10 +171,89 @@ function updateTrayMenu() {
   tray.setContextMenu(menu);
 }
 
+// ── Local HTTP server ──────────────────────────────────────────────────────────
+// Listens on localhost:3010 so returnhub (browser on this PC) can print
+// directly without a Firestore round-trip. ~50ms vs ~1s via the cloud.
+
+const LOCAL_PORT = 3010;
+let localServer = null;
+
+function startLocalServer() {
+  localServer = http.createServer((req, res) => {
+    // CORS — allow returnhub origin (any localhost or the hosted domain)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/status') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: true,
+        courierPrinter:  store.get('courierPrinter', ''),
+        barcodePrinter:  store.get('barcodePrinter', ''),
+        agentName:       store.get('agentName', 'Warehouse PC'),
+      }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/print') {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const job = JSON.parse(body); // { data, type, role }
+          const role        = job.role || 'barcode';
+          const printerName = role === 'courier'
+            ? store.get('courierPrinter', '')
+            : store.get('barcodePrinter', '');
+
+          if (!printerName) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: `No ${role} printer configured` }));
+            return;
+          }
+
+          addRecentJob({ printerRole: role, data: job.data, status: 'printing', time: new Date() });
+
+          await printRaw(printerName, job.data);
+
+          addRecentJob({ printerRole: role, data: job.data, status: 'done', time: new Date() });
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (err) {
+          console.error('[LocalServer] Print failed:', err.message);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+      });
+      return;
+    }
+
+    res.writeHead(404);
+    res.end();
+  });
+
+  localServer.listen(LOCAL_PORT, '127.0.0.1', () => {
+    console.log(`[LocalServer] Listening on http://127.0.0.1:${LOCAL_PORT}`);
+  });
+
+  localServer.on('error', (err) => {
+    console.error('[LocalServer] Failed to start:', err.message);
+  });
+}
+
 // ── Agent ──────────────────────────────────────────────────────────────────────
 
 function startAgent() {
   setStatus('connecting');
+  startLocalServer();
 
   startListening({
     onStatus: (status) => setStatus(status),

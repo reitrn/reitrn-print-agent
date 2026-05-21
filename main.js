@@ -42,10 +42,14 @@ app.on('ready', () => {
   createWindow();
   startAgent();
 
-  // Swap tray icon automatically when user changes Windows light/dark theme
+  // Swap tray + window icon automatically when user changes Windows theme
   nativeTheme.on('updated', () => {
     if (tray && !tray.isDestroyed()) {
       tray.setImage(getTrayIcon());
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const icon = path.join(__dirname, 'assets', nativeTheme.shouldUseDarkColors ? 'icon-dark.ico' : 'icon-light.ico');
+      mainWindow.setIcon(icon);
     }
   });
 
@@ -93,7 +97,7 @@ function createWindow() {
     resizable: false,
     title: 'reitrn Print Agent',
     backgroundColor: '#FFFFFF',
-    icon: path.join(__dirname, 'assets', isTaskbarDark() ? 'icon-dark.ico' : 'icon-light.ico'),
+    icon: path.join(__dirname, 'assets', nativeTheme.shouldUseDarkColors ? 'icon-dark.ico' : 'icon-light.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

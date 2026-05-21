@@ -55,7 +55,7 @@ app.on('before-quit', () => {
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 420,
-    height: 620,
+    height: 700,
     resizable: false,
     title: 'reitrn Print Agent',
     backgroundColor: '#FFFFFF',
@@ -136,10 +136,15 @@ function startAgent() {
     onJob: async (job) => {
       addRecentJob({ ...job, status: 'printing', time: new Date() });
 
-      const printerName = job.printer || store.get('defaultPrinter', '');
+      // Route by role — fall back to legacy job.printer field for old jobs
+      const role        = job.printerRole || 'barcode';
+      const printerName = role === 'courier'
+        ? (store.get('courierPrinter', '') || job.printer || '')
+        : (store.get('barcodePrinter', '') || job.printer || '');
+
       if (!printerName) {
-        console.warn('[Agent] No printer configured for job', job.id);
-        return { success: false, error: 'No printer configured' };
+        console.warn(`[Agent] No ${role} printer configured for job`, job.id);
+        return { success: false, error: `No ${role} printer configured` };
       }
 
       try {
@@ -175,15 +180,20 @@ function addRecentJob(job) {
 ipcMain.handle('get-state', () => ({
   status: connectionStatus,
   printers: getInstalledPrinters(),
-  defaultPrinter: store.get('defaultPrinter', ''),
+  courierPrinter: store.get('courierPrinter', ''),
+  barcodePrinter: store.get('barcodePrinter', ''),
   agentName: store.get('agentName', 'Warehouse PC'),
   autoStart: store.get('autoStart', true),
-  labelSize: store.get('labelSize', '4 inch, 6 inch'),
   recentJobs,
 }));
 
-ipcMain.handle('set-default-printer', (_, printerName) => {
-  store.set('defaultPrinter', printerName);
+ipcMain.handle('set-courier-printer', (_, name) => {
+  store.set('courierPrinter', name);
+  return true;
+});
+
+ipcMain.handle('set-barcode-printer', (_, name) => {
+  store.set('barcodePrinter', name);
   return true;
 });
 
@@ -198,26 +208,36 @@ ipcMain.handle('set-auto-start', (_, enabled) => {
   return true;
 });
 
-ipcMain.handle('set-label-size', (_, size) => {
-  store.set('labelSize', size);
-  return true;
-});
+ipcMain.handle('test-print', async (_, printerName, role) => {
+  const isCourier = role === 'courier';
 
-ipcMain.handle('test-print', async (_, printerName) => {
-  const labelSize = store.get('labelSize', '4 inch, 6 inch');
-  const tspl = [
-    `SIZE ${labelSize}`,
-    'GAP 3 mm, 0 mm',
-    'DIRECTION 1',
-    'SPEED 4',
-    'DENSITY 8',
-    'CLS',
-    'TEXT 50,50,"3",0,1,1,"reitrn."',
-    'TEXT 50,120,"2",0,1,1,"Print Agent Test"',
-    'TEXT 50,180,"1",0,1,1,"Connected & working"',
-    'PRINT 1,1',
-    '',  // trailing \r\n so printer flushes the PRINT command
-  ].join('\r\n');
+  const tspl = isCourier
+    ? [
+        'SIZE 4 inch, 6 inch',
+        'GAP 3 mm, 0 mm',
+        'DIRECTION 0,0',
+        'SPEED 4',
+        'DENSITY 8',
+        'CLS',
+        'TEXT 50,50,"4",0,1,1,"reitrn."',
+        'TEXT 50,120,"2",0,1,1,"Courier Printer Test"',
+        'TEXT 50,165,"1",0,1,1,"4 x 6 inch label - OK"',
+        'PRINT 1,1',
+        '',
+      ].join('\r\n')
+    : [
+        'SIZE 62 mm, 35 mm',
+        'GAP 2 mm, 0 mm',
+        'DIRECTION 0,0',
+        'SPEED 4',
+        'DENSITY 8',
+        'CLS',
+        'TEXT 8,5,"3",0,1,1,"reitrn."',
+        'TEXT 8,42,"1",0,1,1,"Barcode Printer Test"',
+        'BARCODE 8,65,"128",40,1,0,2,3,"TEST-001"',
+        'PRINT 1,1',
+        '',
+      ].join('\r\n');
 
   try {
     await printRaw(printerName, tspl);

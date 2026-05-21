@@ -277,20 +277,43 @@
   <!-- Body -->
   <div class="body">
 
-    <!-- Printer -->
+    <!-- Printers -->
     <div class="card">
-      <div class="card-label">Active Printer</div>
-      <div class="printer-row">
-        <select id="printerSelect">
-          <option value="">Select a printer…</option>
-        </select>
-        <button class="btn btn-surface" onclick="refreshPrinters()">↻</button>
+      <div class="card-label" style="display:flex;align-items:center;justify-content:space-between;">
+        Printers
+        <button class="btn btn-surface" style="padding:3px 8px;font-size:11px;" onclick="refreshPrinters()">↻ Refresh</button>
       </div>
-      <div style="margin-top: 8px; display: flex; gap: 8px;">
-        <button class="btn btn-teal" id="testBtn" onclick="testPrint()" style="flex:1">
-          Test Print
+
+      <!-- Courier printer -->
+      <div style="margin-bottom:10px;">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">
+          Courier <span style="font-weight:400;text-transform:none;letter-spacing:0;">(4×6 inch — shipping labels)</span>
+        </div>
+        <div class="printer-row" style="margin-bottom:6px;">
+          <select id="courierSelect" style="flex:1;">
+            <option value="">Select a printer…</option>
+          </select>
+        </div>
+        <button class="btn btn-teal" id="testCourierBtn" onclick="testPrint('courier')" style="width:100%">
+          Test Courier Print
         </button>
       </div>
+
+      <!-- Barcode printer -->
+      <div style="border-top:1px solid var(--border);padding-top:10px;">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">
+          Barcode <span style="font-weight:400;text-transform:none;letter-spacing:0;">(62×35 mm — item labels)</span>
+        </div>
+        <div class="printer-row" style="margin-bottom:6px;">
+          <select id="barcodeSelect" style="flex:1;">
+            <option value="">Select a printer…</option>
+          </select>
+        </div>
+        <button class="btn btn-teal" id="testBarcodeBtn" onclick="testPrint('barcode')" style="width:100%">
+          Test Barcode Print
+        </button>
+      </div>
+
       <div class="test-result" id="testResult"></div>
     </div>
 
@@ -305,21 +328,6 @@
         </div>
         <input type="text" class="agent-name-input" id="agentName" placeholder="Warehouse PC"
           onchange="saveAgentName(this.value)" />
-      </div>
-
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Label size</div>
-          <div class="setting-sub">Must match loaded roll</div>
-        </div>
-        <select id="labelSize" onchange="saveLabelSize(this.value)" style="font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--white);color:var(--ink);cursor:pointer;">
-          <option value="4 inch, 6 inch">4 × 6 inch</option>
-          <option value="4 inch, 4 inch">4 × 4 inch</option>
-          <option value="100 mm, 150 mm">100 × 150 mm</option>
-          <option value="100 mm, 100 mm">100 × 100 mm</option>
-          <option value="57 mm, 40 mm">57 × 40 mm</option>
-          <option value="38 mm, 25 mm">38 × 25 mm</option>
-        </select>
       </div>
 
       <div class="setting-row">
@@ -347,23 +355,23 @@
 
   <script>
     const STATUS_LABELS = {
-      connected:    'Connected to Firebase',
+      connected:    'Connected',
       connecting:   'Connecting…',
       disconnected: 'Disconnected',
       error:        'Connection error — retrying',
     };
 
     let currentPrinters = [];
-    let defaultPrinter = '';
+    let courierPrinter  = '';
+    let barcodePrinter  = '';
 
     // ── Init ───────────────────────────────────────────────────────────────────
 
     window.reitrn.getState().then((state) => {
       setStatus(state.status);
-      setPrinters(state.printers, state.defaultPrinter);
+      setPrinters(state.printers, state.courierPrinter, state.barcodePrinter);
       document.getElementById('agentName').value = state.agentName || '';
       document.getElementById('autoStart').checked = state.autoStart !== false;
-      document.getElementById('labelSize').value = state.labelSize || '4 inch, 6 inch';
       renderJobs(state.recentJobs || []);
     });
 
@@ -381,47 +389,59 @@
 
     // ── Printers ───────────────────────────────────────────────────────────────
 
-    function setPrinters(printers, selected) {
+    function setPrinters(printers, selCourier, selBarcode) {
       currentPrinters = printers;
-      defaultPrinter  = selected;
-      const sel = document.getElementById('printerSelect');
-      sel.innerHTML = '<option value="">Select a printer…</option>';
-      printers.forEach((name) => {
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
-        if (name === selected) opt.selected = true;
-        sel.appendChild(opt);
+      courierPrinter  = selCourier  || '';
+      barcodePrinter  = selBarcode  || '';
+
+      ['courierSelect', 'barcodeSelect'].forEach((id) => {
+        const sel = document.getElementById(id);
+        const cur = id === 'courierSelect' ? courierPrinter : barcodePrinter;
+        sel.innerHTML = '<option value="">Select a printer…</option>';
+        printers.forEach((name) => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          if (name === cur) opt.selected = true;
+          sel.appendChild(opt);
+        });
       });
     }
 
-    document.getElementById('printerSelect').addEventListener('change', function () {
-      defaultPrinter = this.value;
-      window.reitrn.setDefaultPrinter(this.value);
+    document.getElementById('courierSelect').addEventListener('change', function () {
+      courierPrinter = this.value;
+      window.reitrn.setCourierPrinter(this.value);
+    });
+
+    document.getElementById('barcodeSelect').addEventListener('change', function () {
+      barcodePrinter = this.value;
+      window.reitrn.setBarcodePrinter(this.value);
     });
 
     async function refreshPrinters() {
       const printers = await window.reitrn.refreshPrinters();
-      setPrinters(printers, defaultPrinter);
+      setPrinters(printers, courierPrinter, barcodePrinter);
     }
 
     // ── Test print ─────────────────────────────────────────────────────────────
 
-    async function testPrint() {
-      const btn    = document.getElementById('testBtn');
-      const result = document.getElementById('testResult');
+    async function testPrint(role) {
+      const isCourier = role === 'courier';
+      const printer   = isCourier ? courierPrinter : barcodePrinter;
+      const btnId     = isCourier ? 'testCourierBtn' : 'testBarcodeBtn';
+      const btn       = document.getElementById(btnId);
 
-      if (!defaultPrinter) {
-        showTestResult(false, 'Please select a printer first');
+      if (!printer) {
+        showTestResult(false, `Please select a ${role} printer first`);
         return;
       }
 
       btn.disabled = true;
       btn.textContent = 'Printing…';
 
-      const res = await window.reitrn.testPrint(defaultPrinter);
+      const res = await window.reitrn.testPrint(printer, role);
       btn.disabled = false;
-      btn.textContent = 'Test Print';
+      btn.textContent = isCourier ? 'Test Courier Print' : 'Test Barcode Print';
 
       showTestResult(res.success, res.success ? 'Test label sent!' : res.error);
     }
@@ -442,10 +462,6 @@
 
     function saveAutoStart(enabled) {
       window.reitrn.setAutoStart(enabled);
-    }
-
-    function saveLabelSize(size) {
-      window.reitrn.setLabelSize(size);
     }
 
     // ── Jobs ───────────────────────────────────────────────────────────────────

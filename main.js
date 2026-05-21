@@ -85,7 +85,8 @@ function createWindow() {
 // ── Tray ───────────────────────────────────────────────────────────────────────
 
 function createTray() {
-  const iconPath = path.join(__dirname, 'assets', 'tray.png');
+  // .ico is more reliable than .png for Windows system tray icons
+  const iconPath = path.join(__dirname, 'assets', 'tray.ico');
   let icon;
   try {
     icon = nativeImage.createFromPath(iconPath);

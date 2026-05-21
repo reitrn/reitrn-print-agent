@@ -112,18 +112,47 @@ function printViaUsbPort(printerName, data) {
       return reject(new Error(`Port "${portName}" is not a direct USB port — skipping`));
     }
 
-    // Write directly to \\.\USB001 etc. — bypasses spooler completely
+    // Write directly to the USB port using native CreateFile — bypasses spooler completely.
+    // System.IO.File.Open does NOT work for USB device paths; must use Win32 CreateFile.
     const portPath = `\\\\.\\${portName}`;
     const dataFile = path.join(os.tmpdir(), `reitrn_${Date.now()}.prn`);
     fs.writeFileSync(dataFile, Buffer.from(data, 'utf8'));
 
     const script = `
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class NativeUsb {
+  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Auto)]
+  public static extern IntPtr CreateFile(string lpFileName, uint dwAccess, uint dwShare, IntPtr lpSA, uint dwCreation, uint dwFlags, IntPtr hTemplate);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  public static extern bool WriteFile(IntPtr hFile, byte[] lpBuffer, int nBytesToWrite, out int lpBytesWritten, IntPtr lpOverlapped);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  public static extern bool CloseHandle(IntPtr hObject);
+}
+"@
+$GENERIC_WRITE  = 0x40000000
+$FILE_SHARE_READ = 0x1
+$OPEN_EXISTING  = 3
+$INVALID_HANDLE = [IntPtr](-1)
+
+$handle = [NativeUsb]::CreateFile('${portPath}', $GENERIC_WRITE, $FILE_SHARE_READ, [IntPtr]::Zero, $OPEN_EXISTING, 0, [IntPtr]::Zero)
+if ($handle -eq $INVALID_HANDLE -or $handle -eq [IntPtr]::Zero) {
+  $err = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+  Write-Error "CreateFile failed for '${portPath}', Win32 error $err"
+  exit 1
+}
+Write-Host "CreateFile OK, handle=$handle"
 $bytes = [System.IO.File]::ReadAllBytes('${dataFile}')
-$stream = [System.IO.File]::Open('${portPath}', [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
-$stream.Write($bytes, 0, $bytes.Length)
-$stream.Flush()
-$stream.Close()
-Write-Host "Direct USB write OK: $($bytes.Length) bytes to ${portPath}"
+$written = 0
+$ok = [NativeUsb]::WriteFile($handle, $bytes, $bytes.Length, [ref]$written, [IntPtr]::Zero)
+[NativeUsb]::CloseHandle($handle) | Out-Null
+if (-not $ok) {
+  $err = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+  Write-Error "WriteFile failed, Win32 error $err"
+  exit 1
+}
+Write-Host "USB write OK: $written of $($bytes.Length) bytes to '${portPath}'"
 `;
     const psFile = path.join(os.tmpdir(), `reitrn_usb_${Date.now()}.ps1`);
     fs.writeFileSync(psFile, Buffer.from('﻿' + script, 'utf16le'));
@@ -138,7 +167,8 @@ Write-Host "Direct USB write OK: $($bytes.Length) bytes to ${portPath}"
         try { fs.unlinkSync(psFile);   } catch {}
         if (stdout) console.log('[Printer] USB stdout:', stdout.trim());
         if (stderr) console.warn('[Printer] USB stderr:', stderr.trim());
-        if (err) reject(new Error(stderr || err.message));
+        // Reject on any error — err (non-zero exit) OR stderr output (script used Write-Error + exit 1)
+        if (err || stderr?.trim()) reject(new Error(stderr || err?.message || 'USB write failed'));
         else resolve();
       },
     );

@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('reitrn', {
   setDefaultPrinter: (name)   => ipcRenderer.invoke('set-default-printer', name),
   setAgentName:      (name)   => ipcRenderer.invoke('set-agent-name', name),
   setAutoStart:      (val)    => ipcRenderer.invoke('set-auto-start', val),
+  setLabelSize:      (size)   => ipcRenderer.invoke('set-label-size', size),
   testPrint:         (name)   => ipcRenderer.invoke('test-print', name),
   refreshPrinters:   ()       => ipcRenderer.invoke('refresh-printers'),
   minimizeToTray:    ()       => ipcRenderer.invoke('minimize-to-tray'),

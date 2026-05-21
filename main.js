@@ -178,6 +178,7 @@ ipcMain.handle('get-state', () => ({
   defaultPrinter: store.get('defaultPrinter', ''),
   agentName: store.get('agentName', 'Warehouse PC'),
   autoStart: store.get('autoStart', true),
+  labelSize: store.get('labelSize', '4 inch, 6 inch'),
   recentJobs,
 }));
 
@@ -197,9 +198,15 @@ ipcMain.handle('set-auto-start', (_, enabled) => {
   return true;
 });
 
+ipcMain.handle('set-label-size', (_, size) => {
+  store.set('labelSize', size);
+  return true;
+});
+
 ipcMain.handle('test-print', async (_, printerName) => {
+  const labelSize = store.get('labelSize', '4 inch, 6 inch');
   const tspl = [
-    'SIZE 100 mm, 150 mm',  // <-- update if your label roll is a different size
+    `SIZE ${labelSize}`,
     'GAP 3 mm, 0 mm',
     'DIRECTION 1',
     'SPEED 4',

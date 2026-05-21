@@ -309,6 +309,21 @@
 
       <div class="setting-row">
         <div>
+          <div class="setting-label">Label size</div>
+          <div class="setting-sub">Must match loaded roll</div>
+        </div>
+        <select id="labelSize" onchange="saveLabelSize(this.value)" style="font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--white);color:var(--ink);cursor:pointer;">
+          <option value="4 inch, 6 inch">4 × 6 inch</option>
+          <option value="4 inch, 4 inch">4 × 4 inch</option>
+          <option value="100 mm, 150 mm">100 × 150 mm</option>
+          <option value="100 mm, 100 mm">100 × 100 mm</option>
+          <option value="57 mm, 40 mm">57 × 40 mm</option>
+          <option value="38 mm, 25 mm">38 × 25 mm</option>
+        </select>
+      </div>
+
+      <div class="setting-row">
+        <div>
           <div class="setting-label">Start with Windows</div>
           <div class="setting-sub">Auto-launch on startup</div>
         </div>
@@ -348,6 +363,7 @@
       setPrinters(state.printers, state.defaultPrinter);
       document.getElementById('agentName').value = state.agentName || '';
       document.getElementById('autoStart').checked = state.autoStart !== false;
+      document.getElementById('labelSize').value = state.labelSize || '4 inch, 6 inch';
       renderJobs(state.recentJobs || []);
     });
 
@@ -426,6 +442,10 @@
 
     function saveAutoStart(enabled) {
       window.reitrn.setAutoStart(enabled);
+    }
+
+    function saveLabelSize(size) {
+      window.reitrn.setLabelSize(size);
     }
 
     // ── Jobs ───────────────────────────────────────────────────────────────────

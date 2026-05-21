@@ -20,16 +20,21 @@ function getInstalledPrinters() {
     }
   }
 
-  // Fallback: use PowerShell to list printers
+  // Fallback: use wmic (much faster than PowerShell, no startup overhead)
   try {
     const { execSync } = require('child_process');
     const output = execSync(
-      'powershell -NoProfile -Command "Get-Printer | Select-Object -ExpandProperty Name"',
-      { encoding: 'utf8', timeout: 5000 },
+      'wmic printer get name /format:list',
+      { encoding: 'utf8', timeout: 10000 },
     );
-    return output.split('\n').map((l) => l.trim()).filter(Boolean);
+    return output
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('Name='))
+      .map((l) => l.replace('Name=', '').trim())
+      .filter(Boolean);
   } catch (err) {
-    console.error('[Printer] PowerShell fallback failed:', err.message);
+    console.error('[Printer] wmic fallback failed:', err.message);
     return [];
   }
 }
@@ -122,7 +127,7 @@ $w = 0
     execFile(
       'powershell',
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psFile],
-      { timeout: 15000 },
+      { timeout: 30000 },
       (err, stdout, stderr) => {
         try { fs.unlinkSync(dataFile); } catch {}
         try { fs.unlinkSync(psFile);   } catch {}

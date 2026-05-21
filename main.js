@@ -62,6 +62,25 @@ app.on('before-quit', () => {
   stopListening();
 });
 
+// ── Theme helpers ──────────────────────────────────────────────────────────────
+
+function isTaskbarDark() {
+  // Windows has TWO theme settings: one for apps (window frames) and one for
+  // the taskbar/tray. Electron's nativeTheme only reads the app setting.
+  // We must read SystemUsesLightTheme from the registry to get the taskbar setting.
+  try {
+    const { execSync } = require('child_process');
+    const out = execSync(
+      'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize" /v SystemUsesLightTheme',
+      { encoding: 'utf8', timeout: 3000 },
+    );
+    // 0x0 = dark taskbar, 0x1 = light taskbar
+    return out.includes('0x0');
+  } catch {
+    return nativeTheme.shouldUseDarkColors; // fallback
+  }
+}
+
 // ── Window ─────────────────────────────────────────────────────────────────────
 
 function createWindow() {
@@ -71,7 +90,7 @@ function createWindow() {
     resizable: false,
     title: 'reitrn Print Agent',
     backgroundColor: '#FFFFFF',
-    icon: path.join(__dirname, 'assets', nativeTheme.shouldUseDarkColors ? 'icon-dark.ico' : 'icon-light.ico'),
+    icon: path.join(__dirname, 'assets', isTaskbarDark() ? 'icon-dark.ico' : 'icon-light.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -95,23 +114,6 @@ function createWindow() {
 }
 
 // ── Tray ───────────────────────────────────────────────────────────────────────
-
-function isTaskbarDark() {
-  // Windows has TWO theme settings: one for apps (window frames) and one for
-  // the taskbar/tray. Electron's nativeTheme only reads the app setting.
-  // We must read SystemUsesLightTheme from the registry to get the taskbar setting.
-  try {
-    const { execSync } = require('child_process');
-    const out = execSync(
-      'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize" /v SystemUsesLightTheme',
-      { encoding: 'utf8', timeout: 3000 },
-    );
-    // 0x0 = dark taskbar, 0x1 = light taskbar
-    return out.includes('0x0');
-  } catch {
-    return nativeTheme.shouldUseDarkColors; // fallback
-  }
-}
 
 function getTrayIcon() {
   // Dark taskbar → tray-dark.ico (white R); light taskbar → tray-light.ico (black R)

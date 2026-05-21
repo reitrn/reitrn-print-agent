@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('reitrn', {
   getState:          ()             => ipcRenderer.invoke('get-state'),
   setCourierPrinter: (name)         => ipcRenderer.invoke('set-courier-printer', name),
   setBarcodePrinter: (name)         => ipcRenderer.invoke('set-barcode-printer', name),
+  setCourierLang:    (lang)         => ipcRenderer.invoke('set-courier-lang', lang),
+  setBarcodeLang:    (lang)         => ipcRenderer.invoke('set-barcode-lang', lang),
   setAgentName:      (name)         => ipcRenderer.invoke('set-agent-name', name),
   setAutoStart:      (val)          => ipcRenderer.invoke('set-auto-start', val),
   testPrint:         (name, role)   => ipcRenderer.invoke('test-print', name, role),

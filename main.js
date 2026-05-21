@@ -273,6 +273,65 @@ function handleRequest(req, res) {
     res.end();
 }
 
+// ── Label builders ─────────────────────────────────────────────────────────────
+
+function buildZPL(label, widthMm, heightMm) {
+  const dpm = 8;
+  const w = Math.round(widthMm * dpm);
+  const h = Math.round(heightMm * dpm);
+  const lines = [
+    '^XA',
+    `^PW${w}`,
+    `^LL${h}`,
+    '^CF0,32',
+    `^FO20,20^FD${(label.title || '').slice(0, 30)}^FS`,
+  ];
+  if (label.subtitle) lines.push(`^CF0,24^FO20,60^FD${label.subtitle.slice(0, 30)}^FS`);
+  if (label.sku)      lines.push(`^CF0,22^FO20,90^FD${label.sku}^FS`);
+  if (label.price)    lines.push(`^CF0,52^FO${w - 120},20^FD${label.price}^FS`);
+  if (label.barcode)  lines.push(`^FO20,${label.price || label.subtitle ? 130 : 70}^BCN,70,Y,N,N^FD${label.barcode}^FS`);
+  lines.push('^XZ');
+  return lines.join('\n');
+}
+
+function buildTSPL(label, widthMm, heightMm) {
+  const lines = [
+    `SIZE ${widthMm} mm, ${heightMm} mm`,
+    'GAP 2 mm, 0 mm',
+    'DIRECTION 0,0',
+    'SPEED 4',
+    'DENSITY 8',
+    'CLS',
+    `TEXT 10,10,"3",0,1,1,"${(label.title || '').slice(0, 28)}"`,
+  ];
+  if (label.subtitle) lines.push(`TEXT 10,50,"2",0,1,1,"${label.subtitle.slice(0, 30)}"`);
+  if (label.sku)      lines.push(`TEXT 10,80,"2",0,1,1,"${label.sku}"`);
+  if (label.price)    lines.push(`TEXT ${widthMm * 8 - 100},10,"4",0,1,1,"${label.price}"`);
+  if (label.barcode)  lines.push(`BARCODE 10,${label.subtitle ? 120 : 80},"128",50,1,0,2,2,"${label.barcode}"`);
+  lines.push('PRINT 1,1');
+  lines.push('');
+  return lines.join('\r\n');
+}
+
+function renderJob(job) {
+  // Legacy jobs have pre-rendered `data` string — pass through as-is
+  if (job.data) return job.data;
+
+  // New jobs have structured `labelData` — render in the language configured for this printer
+  const role   = job.printerRole || 'barcode';
+  const lang   = role === 'courier'
+    ? (store.get('courierLang', 'zpl'))
+    : (store.get('barcodeLang', 'zpl'));
+
+  const label  = job.labelData || {};
+  const width  = role === 'courier' ? 101.6 : 62;
+  const height = role === 'courier' ? 152.4 : 35;
+
+  return lang === 'tspl'
+    ? buildTSPL(label, width, height)
+    : buildZPL(label, width, height);
+}
+
 // ── Agent ──────────────────────────────────────────────────────────────────────
 
 function startAgent() {
@@ -295,10 +354,11 @@ function startAgent() {
         return { success: false, error: `No ${role} printer configured` };
       }
 
+      const data = renderJob(job);
       addRecentJob({ id: job.id, printer: printerName, printerRole: role, status: 'printing', time: new Date() });
 
       try {
-        await printRaw(printerName, job.data);
+        await printRaw(printerName, data);
         addRecentJob({ id: job.id, printer: printerName, status: 'done', time: new Date() });
         return { success: true };
       } catch (err) {
@@ -339,6 +399,8 @@ ipcMain.handle('get-state', () => ({
   printers: getInstalledPrinters(),
   courierPrinter: store.get('courierPrinter', ''),
   barcodePrinter: store.get('barcodePrinter', ''),
+  courierLang: store.get('courierLang', 'zpl'),
+  barcodeLang: store.get('barcodeLang', 'zpl'),
   agentName: store.get('agentName', 'Warehouse PC'),
   autoStart: store.get('autoStart', true),
   recentJobs,
@@ -351,6 +413,16 @@ ipcMain.handle('set-courier-printer', (_, name) => {
 
 ipcMain.handle('set-barcode-printer', (_, name) => {
   store.set('barcodePrinter', name);
+  return true;
+});
+
+ipcMain.handle('set-courier-lang', (_, lang) => {
+  store.set('courierLang', lang);
+  return true;
+});
+
+ipcMain.handle('set-barcode-lang', (_, lang) => {
+  store.set('barcodeLang', lang);
   return true;
 });
 

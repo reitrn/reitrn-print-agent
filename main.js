@@ -255,6 +255,11 @@ function handleRequest(req, res) {
 
           // Print in the background
           const localData = renderJob({ ...job, printerRole: role }, printerName);
+          if (!localData) {
+            console.warn('[LocalServer] renderJob returned empty — job has no printable data');
+            addRecentJob({ id: localJobId, printer: printerName, status: 'error', time: new Date(), error: 'No printable data in job' });
+            return;
+          }
           printRaw(printerName, localData)
             .then(() => addRecentJob({ id: localJobId, printer: printerName, status: 'done', time: new Date() }))
             .catch((err) => {
@@ -329,7 +334,8 @@ function renderJob(job, printerName) {
 
   // returnhub sends both zpl + tspl — pick the right one
   if (job.zpl || job.tspl) {
-    return lang === 'tspl' ? (job.tspl || job.zpl) : (job.zpl || job.tspl);
+    const result = lang === 'tspl' ? (job.tspl || job.zpl) : (job.zpl || job.tspl);
+    if (result) return result;
   }
 
   // Mobile app sends structured labelData — build here
@@ -343,7 +349,7 @@ function renderJob(job, printerName) {
   }
 
   // Legacy pre-rendered string — pass through as-is
-  return job.data || '';
+  return job.data || null;
 }
 
 // ── Agent ──────────────────────────────────────────────────────────────────────
@@ -369,6 +375,12 @@ function startAgent() {
       }
 
       const data = renderJob(job, printerName);
+      if (!data) {
+        console.warn('[Agent] renderJob returned empty — job has no printable data', job.id);
+        addRecentJob({ id: job.id, printer: printerName, status: 'error', time: new Date(), error: 'No printable data in job' });
+        return { success: false, error: 'No printable data in job' };
+      }
+
       addRecentJob({ id: job.id, printer: printerName, printerRole: role, status: 'printing', time: new Date() });
 
       try {

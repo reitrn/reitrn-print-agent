@@ -171,6 +171,18 @@ function updateTrayMenu() {
   tray.setContextMenu(menu);
 }
 
+// ── Port cache pre-warm ────────────────────────────────────────────────────────
+// Run wmic lookups at startup so the first real print job has zero wmic delay.
+
+function prewarmPortCache() {
+  const { getPortNameForPrinter } = require('./printer');
+  const courier = store.get('courierPrinter', '');
+  const barcode = store.get('barcodePrinter', '');
+  [courier, barcode].filter(Boolean).forEach((name) => {
+    try { getPortNameForPrinter(name); } catch {}
+  });
+}
+
 // ── Local HTTP server ──────────────────────────────────────────────────────────
 // Listens on localhost:3010 so returnhub (browser on this PC) can print
 // directly without a Firestore round-trip. ~50ms vs ~1s via the cloud.
@@ -261,6 +273,7 @@ function startLocalServer() {
 function startAgent() {
   setStatus('connecting');
   startLocalServer();
+  prewarmPortCache();
 
   startListening({
     onStatus: (status) => setStatus(status),

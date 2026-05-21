@@ -7,6 +7,9 @@ try {
   console.warn('[Printer] Native printer module not available:', err.message);
 }
 
+// Cache USB port names so wmic only runs once per printer (saves ~1-2s per print)
+const portNameCache = {};
+
 /**
  * Get list of installed printers on this machine.
  * @returns {string[]}
@@ -79,46 +82,90 @@ function printRaw(printerName, data) {
 }
 
 /**
+ * Look up the USB port name for a printer via wmic.
+ * Result is cached so wmic only runs once per printer name.
+ */
+function getPortName(printerName) {
+  if (portNameCache[printerName]) {
+    return portNameCache[printerName];
+  }
+  const { execSync } = require('child_process');
+  const escaped = printerName.replace(/"/g, '\\"');
+  const out = execSync(
+    `wmic printer where "name='${escaped}'" get PortName /format:list`,
+    { encoding: 'utf8', timeout: 8000 },
+  );
+  const match = out.match(/PortName=(.+)/);
+  if (!match) throw new Error('PortName not found in wmic output');
+  const portName = match[1].trim();
+  portNameCache[printerName] = portName;
+  console.log(`[Printer] Port for "${printerName}" = ${portName} (cached)`);
+  return portName;
+}
+
+/**
  * Bypass the Windows print spooler entirely: look up the printer's USB port name
- * (e.g. USB001) via wmic, then write raw bytes directly to \\.\USB001.
- * This is the most reliable method for USB label printers with custom drivers.
+ * (e.g. USB001) via wmic (cached), then write raw bytes directly to \\.\USB001.
+ *
+ * Tries pure Node.js fs.open first (fastest — no child process).
+ * Falls back to PowerShell CreateFile P/Invoke if that fails.
  */
 function printViaUsbPort(printerName, data) {
   return new Promise((resolve, reject) => {
-    const { execSync } = require('child_process');
     const fs   = require('fs');
     const os   = require('os');
     const path = require('path');
 
-    // Get the Windows port name for this printer (e.g. USB001)
     let portName;
     try {
-      const escaped = printerName.replace(/'/g, "\\'");
-      const out = execSync(
-        `wmic printer where "name='${escaped}'" get PortName /format:list`,
-        { encoding: 'utf8', timeout: 8000 },
-      );
-      const match = out.match(/PortName=(.+)/);
-      if (!match) throw new Error('PortName not found in wmic output');
-      portName = match[1].trim();
+      portName = getPortName(printerName);
     } catch (err) {
-      return reject(new Error(`wmic PortName lookup failed: ${err.message}`));
+      return reject(new Error(`Port lookup failed: ${err.message}`));
     }
 
-    console.log(`[Printer] USB port for "${printerName}" = ${portName}`);
-
-    // Only USB* ports — COM/LPT ports work differently
     if (!portName.match(/^USB\d+$/i)) {
-      return reject(new Error(`Port "${portName}" is not a direct USB port — skipping`));
+      return reject(new Error(`Port "${portName}" is not a USB port — skipping`));
     }
 
-    // Write directly to the USB port using native CreateFile — bypasses spooler completely.
-    // System.IO.File.Open does NOT work for USB device paths; must use Win32 CreateFile.
     const portPath = `\\\\.\\${portName}`;
-    const dataFile = path.join(os.tmpdir(), `reitrn_${Date.now()}.prn`);
-    fs.writeFileSync(dataFile, Buffer.from(data, 'utf8'));
+    const bytes    = Buffer.from(data, 'utf8');
 
-    const script = `
+    // ── Fast path: pure Node.js open + write (no child process, ~50ms) ──
+    fs.open(portPath, 'w', (openErr, fd) => {
+      if (!openErr) {
+        fs.write(fd, bytes, 0, bytes.length, null, (writeErr, written) => {
+          fs.close(fd, () => {});
+          if (!writeErr) {
+            console.log(`[Printer] Node.js direct write OK: ${written} bytes to ${portPath}`);
+            return resolve();
+          }
+          console.warn(`[Printer] Node.js write failed (${writeErr.message}), trying PowerShell`);
+          printViaUsbPowerShell(portPath, bytes, resolve, reject);
+        });
+      } else {
+        console.warn(`[Printer] Node.js open failed (${openErr.message}), trying PowerShell`);
+        printViaUsbPowerShell(portPath, bytes, resolve, reject);
+      }
+    });
+  });
+}
+
+/**
+ * PowerShell fallback for USB write using Win32 CreateFile P/Invoke.
+ * Only used if the direct Node.js write fails.
+ */
+function printViaUsbPowerShell(portPath, bytes, resolve, reject) {
+  const fs   = require('fs');
+  const os   = require('os');
+  const path = require('path');
+
+  const ts       = Date.now();
+  const dataFile = path.join(os.tmpdir(), `reitrn_${ts}.prn`);
+  const psFile   = path.join(os.tmpdir(), `reitrn_usb_${ts}.ps1`);
+
+  fs.writeFileSync(dataFile, bytes);
+
+  const script = `
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -131,48 +178,43 @@ public class NativeUsb {
   public static extern bool CloseHandle(IntPtr hObject);
 }
 "@
-$GENERIC_WRITE  = 0x40000000
+$GENERIC_WRITE   = 0x40000000
 $FILE_SHARE_READ = 0x1
-$OPEN_EXISTING  = 3
-$INVALID_HANDLE = [IntPtr](-1)
-
+$OPEN_EXISTING   = 3
+$INVALID_HANDLE  = [IntPtr](-1)
 $handle = [NativeUsb]::CreateFile('${portPath}', $GENERIC_WRITE, $FILE_SHARE_READ, [IntPtr]::Zero, $OPEN_EXISTING, 0, [IntPtr]::Zero)
 if ($handle -eq $INVALID_HANDLE -or $handle -eq [IntPtr]::Zero) {
   $err = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-  Write-Error "CreateFile failed for '${portPath}', Win32 error $err"
+  Write-Error "CreateFile failed, Win32 error $err"
   exit 1
 }
-Write-Host "CreateFile OK, handle=$handle"
-$bytes = [System.IO.File]::ReadAllBytes('${dataFile}')
+$bytes   = [System.IO.File]::ReadAllBytes('${dataFile}')
 $written = 0
-$ok = [NativeUsb]::WriteFile($handle, $bytes, $bytes.Length, [ref]$written, [IntPtr]::Zero)
+$ok      = [NativeUsb]::WriteFile($handle, $bytes, $bytes.Length, [ref]$written, [IntPtr]::Zero)
 [NativeUsb]::CloseHandle($handle) | Out-Null
 if (-not $ok) {
   $err = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
   Write-Error "WriteFile failed, Win32 error $err"
   exit 1
 }
-Write-Host "USB write OK: $written of $($bytes.Length) bytes to '${portPath}'"
+Write-Host "USB write OK: $written bytes to '${portPath}'"
 `;
-    const psFile = path.join(os.tmpdir(), `reitrn_usb_${Date.now()}.ps1`);
-    fs.writeFileSync(psFile, Buffer.from('﻿' + script, 'utf16le'));
+  fs.writeFileSync(psFile, Buffer.from('﻿' + script, 'utf16le'));
 
-    const { execFile } = require('child_process');
-    execFile(
-      'powershell',
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psFile],
-      { timeout: 15000 },
-      (err, stdout, stderr) => {
-        try { fs.unlinkSync(dataFile); } catch {}
-        try { fs.unlinkSync(psFile);   } catch {}
-        if (stdout) console.log('[Printer] USB stdout:', stdout.trim());
-        if (stderr) console.warn('[Printer] USB stderr:', stderr.trim());
-        // Reject on any error — err (non-zero exit) OR stderr output (script used Write-Error + exit 1)
-        if (err || stderr?.trim()) reject(new Error(stderr || err?.message || 'USB write failed'));
-        else resolve();
-      },
-    );
-  });
+  const { execFile } = require('child_process');
+  execFile(
+    'powershell',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psFile],
+    { timeout: 15000 },
+    (err, stdout, stderr) => {
+      try { fs.unlinkSync(dataFile); } catch {}
+      try { fs.unlinkSync(psFile);   } catch {}
+      if (stdout) console.log('[Printer] PS stdout:', stdout.trim());
+      if (stderr) console.warn('[Printer] PS stderr:', stderr.trim());
+      if (err || stderr?.trim()) reject(new Error(stderr || err?.message || 'USB write failed'));
+      else resolve();
+    },
+  );
 }
 
 /**
@@ -291,4 +333,4 @@ Write-Host "Done"
   });
 }
 
-module.exports = { getInstalledPrinters, printRaw };
+module.exports = { getInstalledPrinters, printRaw, getPortNameForPrinter: getPortName };

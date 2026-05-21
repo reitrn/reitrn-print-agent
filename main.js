@@ -246,11 +246,12 @@ function handleRequest(req, res) {
             return;
           }
 
-          addRecentJob({ printerRole: role, data: job.data, status: 'printing', time: new Date() });
+          const localJobId = `local_${Date.now()}`;
+          addRecentJob({ id: localJobId, printer: printerName, printerRole: role, status: 'printing', time: new Date() });
 
           await printRaw(printerName, job.data);
 
-          addRecentJob({ printerRole: role, data: job.data, status: 'done', time: new Date() });
+          addRecentJob({ id: localJobId, printer: printerName, status: 'done', time: new Date() });
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true }));
@@ -277,8 +278,6 @@ function startAgent() {
   startListening({
     onStatus: (status) => setStatus(status),
     onJob: async (job) => {
-      addRecentJob({ ...job, status: 'printing', time: new Date() });
-
       // Route by role — fall back to legacy job.printer field for old jobs
       const role        = job.printerRole || 'barcode';
       const printerName = role === 'courier'
@@ -287,16 +286,19 @@ function startAgent() {
 
       if (!printerName) {
         console.warn(`[Agent] No ${role} printer configured for job`, job.id);
+        addRecentJob({ id: job.id, printer: `${role} printer`, status: 'error', time: new Date(), error: `No ${role} printer configured` });
         return { success: false, error: `No ${role} printer configured` };
       }
 
+      addRecentJob({ id: job.id, printer: printerName, printerRole: role, status: 'printing', time: new Date() });
+
       try {
         await printRaw(printerName, job.data);
-        addRecentJob({ ...job, status: 'done', time: new Date() });
+        addRecentJob({ id: job.id, printer: printerName, status: 'done', time: new Date() });
         return { success: true };
       } catch (err) {
         console.error('[Agent] Print failed:', err);
-        addRecentJob({ ...job, status: 'error', time: new Date(), error: err.message });
+        addRecentJob({ id: job.id, printer: printerName, status: 'error', time: new Date(), error: err.message });
         return { success: false, error: err.message };
       }
     },
@@ -312,8 +314,14 @@ function setStatus(status) {
 }
 
 function addRecentJob(job) {
-  recentJobs = [job, ...recentJobs].slice(0, 50);
-  store.set('recentJobs', recentJobs); // persist across restarts
+  const existing = job.id ? recentJobs.findIndex((j) => j.id === job.id) : -1;
+  if (existing >= 0) {
+    // Update in place — keeps the list order and replaces 'printing' with 'done'/'error'
+    recentJobs = recentJobs.map((j, i) => i === existing ? { ...j, ...job } : j);
+  } else {
+    recentJobs = [job, ...recentJobs].slice(0, 50);
+  }
+  store.set('recentJobs', recentJobs);
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('jobs-update', recentJobs);
   }

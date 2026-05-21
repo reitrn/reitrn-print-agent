@@ -249,14 +249,19 @@ function handleRequest(req, res) {
           const localJobId = `local_${Date.now()}`;
           addRecentJob({ id: localJobId, printer: printerName, printerRole: role, status: 'printing', time: new Date() });
 
-          await printRaw(printerName, job.data);
-
-          addRecentJob({ id: localJobId, printer: printerName, status: 'done', time: new Date() });
-
-          res.writeHead(200, { 'Content-Type': 'application/json' });
+          // Respond immediately — don't make the browser wait for the physical print
+          res.writeHead(202, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true }));
+
+          // Print in the background
+          printRaw(printerName, job.data)
+            .then(() => addRecentJob({ id: localJobId, printer: printerName, status: 'done', time: new Date() }))
+            .catch((err) => {
+              console.error('[LocalServer] Print failed:', err.message);
+              addRecentJob({ id: localJobId, printer: printerName, status: 'error', time: new Date(), error: err.message });
+            });
         } catch (err) {
-          console.error('[LocalServer] Print failed:', err.message);
+          console.error('[LocalServer] Request error:', err.message);
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: err.message }));
         }

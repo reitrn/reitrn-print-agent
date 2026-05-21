@@ -62,14 +62,86 @@ function printRaw(printerName, data) {
         },
       });
     } else {
-      // Fallback: try simple copy /b first, then WinSpool P/Invoke
-      printViaCopy(printerName, data)
+      // Try direct USB port write → copy /b → WinSpool (in order of reliability)
+      printViaUsbPort(printerName, data)
+        .then(resolve)
+        .catch((usbErr) => {
+          console.warn('[Printer] Direct USB port write failed, trying copy /b:', usbErr.message);
+          return printViaCopy(printerName, data);
+        })
         .then(resolve)
         .catch((copyErr) => {
           console.warn('[Printer] copy /b failed, trying WinSpool:', copyErr.message);
           printViaPowerShell(printerName, data).then(resolve).catch(reject);
         });
     }
+  });
+}
+
+/**
+ * Bypass the Windows print spooler entirely: look up the printer's USB port name
+ * (e.g. USB001) via wmic, then write raw bytes directly to \\.\USB001.
+ * This is the most reliable method for USB label printers with custom drivers.
+ */
+function printViaUsbPort(printerName, data) {
+  return new Promise((resolve, reject) => {
+    const { execSync } = require('child_process');
+    const fs   = require('fs');
+    const os   = require('os');
+    const path = require('path');
+
+    // Get the Windows port name for this printer (e.g. USB001)
+    let portName;
+    try {
+      const escaped = printerName.replace(/'/g, "\\'");
+      const out = execSync(
+        `wmic printer where "name='${escaped}'" get PortName /format:list`,
+        { encoding: 'utf8', timeout: 8000 },
+      );
+      const match = out.match(/PortName=(.+)/);
+      if (!match) throw new Error('PortName not found in wmic output');
+      portName = match[1].trim();
+    } catch (err) {
+      return reject(new Error(`wmic PortName lookup failed: ${err.message}`));
+    }
+
+    console.log(`[Printer] USB port for "${printerName}" = ${portName}`);
+
+    // Only USB* ports — COM/LPT ports work differently
+    if (!portName.match(/^USB\d+$/i)) {
+      return reject(new Error(`Port "${portName}" is not a direct USB port — skipping`));
+    }
+
+    // Write directly to \\.\USB001 etc. — bypasses spooler completely
+    const portPath = `\\\\.\\${portName}`;
+    const dataFile = path.join(os.tmpdir(), `reitrn_${Date.now()}.prn`);
+    fs.writeFileSync(dataFile, Buffer.from(data, 'utf8'));
+
+    const script = `
+$bytes = [System.IO.File]::ReadAllBytes('${dataFile}')
+$stream = [System.IO.File]::Open('${portPath}', [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+$stream.Write($bytes, 0, $bytes.Length)
+$stream.Flush()
+$stream.Close()
+Write-Host "Direct USB write OK: $($bytes.Length) bytes to ${portPath}"
+`;
+    const psFile = path.join(os.tmpdir(), `reitrn_usb_${Date.now()}.ps1`);
+    fs.writeFileSync(psFile, Buffer.from('﻿' + script, 'utf16le'));
+
+    const { execFile } = require('child_process');
+    execFile(
+      'powershell',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psFile],
+      { timeout: 15000 },
+      (err, stdout, stderr) => {
+        try { fs.unlinkSync(dataFile); } catch {}
+        try { fs.unlinkSync(psFile);   } catch {}
+        if (stdout) console.log('[Printer] USB stdout:', stdout.trim());
+        if (stderr) console.warn('[Printer] USB stderr:', stderr.trim());
+        if (err) reject(new Error(stderr || err.message));
+        else resolve();
+      },
+    );
   });
 }
 

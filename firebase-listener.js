@@ -8,6 +8,7 @@ const {
   onSnapshot,
   doc,
   updateDoc,
+  setDoc,
   runTransaction,
   Timestamp,
 } = require('firebase/firestore');
@@ -24,6 +25,53 @@ const firebaseConfig = {
 
 let db = null;
 let unsubscribe = null;
+let heartbeatTimer = null;
+let registeredStationName = null;
+
+// ── Station registration ───────────────────────────────────────────────────────
+// Each agent registers itself in the `printStations` collection so that
+// web/mobile apps can discover available stations and route jobs correctly.
+
+async function registerStation({ name, courierPrinter = '', barcodePrinter = '' }) {
+  try {
+    const firestore = getDb();
+    registeredStationName = name;
+    await setDoc(doc(firestore, 'printStations', name), {
+      name,
+      status: 'online',
+      courierPrinter,
+      barcodePrinter,
+      lastSeen: Timestamp.now(),
+    }, { merge: true });
+
+    // Heartbeat every 30 s to keep lastSeen fresh and status visible
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = setInterval(async () => {
+      try {
+        await setDoc(doc(getDb(), 'printStations', name), {
+          lastSeen: Timestamp.now(),
+          status: 'online',
+        }, { merge: true });
+      } catch { /* ignore transient errors */ }
+    }, 30_000);
+
+    console.log(`[Firebase] Station "${name}" registered`);
+  } catch (err) {
+    console.error('[Firebase] Station registration failed:', err.message);
+  }
+}
+
+async function deregisterStation() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+  if (!registeredStationName) return;
+  try {
+    await setDoc(doc(getDb(), 'printStations', registeredStationName), {
+      status: 'offline',
+      lastSeen: Timestamp.now(),
+    }, { merge: true });
+    console.log(`[Firebase] Station "${registeredStationName}" marked offline`);
+  } catch { /* best-effort on quit */ }
+}
 
 function getDb() {
   if (!db) {
@@ -127,4 +175,4 @@ function stopListening() {
   }
 }
 
-module.exports = { startListening, stopListening };
+module.exports = { startListening, stopListening, registerStation, deregisterStation };

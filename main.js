@@ -3,7 +3,7 @@ const path = require('path');
 const https = require('https');
 const fs = require('fs');
 const Store = require('electron-store');
-const { startListening, stopListening } = require('./firebase-listener');
+const { startListening, stopListening, registerStation, deregisterStation } = require('./firebase-listener');
 const { getInstalledPrinters, printRaw } = require('./printer');
 
 const store = new Store();
@@ -56,6 +56,7 @@ app.on('window-all-closed', (e) => {
 });
 
 app.on('before-quit', () => {
+  deregisterStation();
   stopListening();
   if (localServer) localServer.close();
 });
@@ -354,10 +355,20 @@ function renderJob(job, printerName) {
 
 // ── Agent ──────────────────────────────────────────────────────────────────────
 
+/** Re-register this station in Firestore with current name + printer names. */
+function refreshStationRegistration() {
+  registerStation({
+    name:           store.get('agentName',       'Warehouse PC'),
+    courierPrinter: store.get('courierPrinter',  ''),
+    barcodePrinter: store.get('barcodePrinter',  ''),
+  });
+}
+
 function startAgent() {
   setStatus('connecting');
   startLocalServer();
   prewarmPortCache();
+  refreshStationRegistration();
 
   startListening({
     onStatus: (status) => setStatus(status),
@@ -433,17 +444,20 @@ ipcMain.handle('get-state', () => ({
 
 ipcMain.handle('set-courier-printer', (_, name) => {
   store.set('courierPrinter', name);
+  refreshStationRegistration();
   return true;
 });
 
 ipcMain.handle('set-barcode-printer', (_, name) => {
   store.set('barcodePrinter', name);
+  refreshStationRegistration();
   return true;
 });
 
 
 ipcMain.handle('set-agent-name', (_, name) => {
   store.set('agentName', name.trim() || 'Warehouse PC');
+  refreshStationRegistration();
   return true;
 });
 

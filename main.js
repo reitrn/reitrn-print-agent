@@ -361,6 +361,7 @@ function startAgent() {
 
   startListening({
     onStatus: (status) => setStatus(status),
+    getAgentName: () => store.get('agentName', 'Warehouse PC'),
     onJob: async (job) => {
       // Route by role — fall back to legacy job.printer field for old jobs
       const role        = job.printerRole || 'barcode';

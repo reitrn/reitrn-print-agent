@@ -8,6 +8,7 @@ const {
   onSnapshot,
   doc,
   updateDoc,
+  runTransaction,
   Timestamp,
 } = require('firebase/firestore');
 
@@ -34,9 +35,10 @@ function getDb() {
 
 /**
  * Start listening to pending print jobs in Firestore.
- * @param {{ onStatus: Function, onJob: Function }} callbacks
+ * @param {{ onStatus: Function, onJob: Function, getAgentName: Function }} callbacks
+ *   getAgentName — called each time a job is processed so renames take effect immediately.
  */
-function startListening({ onStatus, onJob }) {
+function startListening({ onStatus, onJob, getAgentName }) {
   try {
     const firestore = getDb();
     onStatus('connecting');
@@ -56,16 +58,46 @@ function startListening({ onStatus, onJob }) {
           if (change.type !== 'added') continue;
 
           const job = { id: change.doc.id, ...change.doc.data() };
+          const myName = (getAgentName ? getAgentName() : '') || 'Warehouse PC';
 
-          // Mark as printing to prevent other agents picking it up
-          await updateDoc(doc(firestore, 'printJobs', change.doc.id), {
-            status: 'printing',
-            processingAt: Timestamp.now(),
-          });
+          // ── Station targeting ──────────────────────────────────────────────
+          // If the job specifies a target station, only the matching agent
+          // should process it. '*' or missing = any agent can handle it.
+          const target = job.targetStation;
+          if (target && target !== '*' && target !== myName) {
+            continue; // Not for this station — another agent will pick it up
+          }
+
+          // ── Atomic claim via transaction ───────────────────────────────────
+          // Prevents two agents from both seeing 'pending' simultaneously and
+          // both printing the same job. Only the first to commit wins.
+          const jobRef = doc(firestore, 'printJobs', change.doc.id);
+          let claimed = false;
+          try {
+            await runTransaction(firestore, async (t) => {
+              const fresh = await t.get(jobRef);
+              if (!fresh.exists() || fresh.data().status !== 'pending') {
+                throw new Error('already_claimed');
+              }
+              t.update(jobRef, {
+                status: 'printing',
+                claimedBy: myName,
+                processingAt: Timestamp.now(),
+              });
+            });
+            claimed = true;
+          } catch (err) {
+            if (err.message !== 'already_claimed') {
+              console.warn('[Firebase] Claim transaction failed:', err.message);
+            }
+            continue; // Another agent already claimed this job
+          }
+
+          if (!claimed) continue;
 
           const result = await onJob(job);
 
-          await updateDoc(doc(firestore, 'printJobs', change.doc.id), {
+          await updateDoc(jobRef, {
             status: result.success ? 'done' : 'error',
             processedAt: Timestamp.now(),
             ...(result.error ? { errorMessage: result.error } : {}),

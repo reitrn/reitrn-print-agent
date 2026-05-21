@@ -42,16 +42,7 @@ app.on('ready', () => {
   createWindow();
   startAgent();
 
-  // Swap tray + window icon automatically when user changes Windows theme
-  nativeTheme.on('updated', () => {
-    if (tray && !tray.isDestroyed()) {
-      tray.setImage(getTrayIcon());
-    }
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      const icon = path.join(__dirname, 'assets', nativeTheme.shouldUseDarkColors ? 'icon-dark.ico' : 'icon-light.ico');
-      mainWindow.setIcon(icon);
-    }
-  });
+  // No theme-based icon swapping needed — teal icon works on both light and dark
 
   // Auto-launch with Windows
   app.setLoginItemSettings({
@@ -97,7 +88,7 @@ function createWindow() {
     resizable: false,
     title: 'reitrn Print Agent',
     backgroundColor: '#FFFFFF',
-    icon: path.join(__dirname, 'assets', nativeTheme.shouldUseDarkColors ? 'icon-dark.ico' : 'icon-light.ico'),
+    icon: path.join(__dirname, 'assets', 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -123,20 +114,9 @@ function createWindow() {
 // ── Tray ───────────────────────────────────────────────────────────────────────
 
 function getTrayIcon() {
-  // Dark taskbar → tray-dark.ico (white R); light taskbar → tray-light.ico (black R)
-  const variant = isTaskbarDark() ? 'tray-dark' : 'tray-light';
-  const iconPath = path.join(__dirname, 'assets', `${variant}.ico`);
   try {
-    const icon = nativeImage.createFromPath(iconPath);
-    if (!icon.isEmpty()) {
-      console.log(`[Tray] Loaded ${variant}.ico (dark mode: ${nativeTheme.shouldUseDarkColors})`);
-      return icon.resize({ width: 16, height: 16 });
-    }
-  } catch {}
-  // Fallback to generic tray.ico if themed versions don't exist yet
-  try {
-    const fallback = nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.ico'));
-    if (!fallback.isEmpty()) return fallback.resize({ width: 16, height: 16 });
+    const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.ico'));
+    if (!icon.isEmpty()) return icon.resize({ width: 16, height: 16 });
   } catch {}
   console.warn('[Tray] No icon found — using empty');
   return nativeImage.createEmpty();

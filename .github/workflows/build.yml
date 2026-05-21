@@ -23,6 +23,14 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Write SSL cert files
+        run: |
+          $env:SSL_CERT | Out-File -FilePath assets/cert.pem -Encoding utf8NoBOM
+          $env:SSL_KEY  | Out-File -FilePath assets/key.pem  -Encoding utf8NoBOM
+        env:
+          SSL_CERT: ${{ secrets.SSL_CERT }}
+          SSL_KEY:  ${{ secrets.SSL_KEY }}
+
       - name: Build Windows installer
         run: npm run build
         env:

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, nativeTheme } = require('electron');
 const path = require('path');
-const http = require('http');
+const https = require('https');
+const fs = require('fs');
 const Store = require('electron-store');
 const { startListening, stopListening } = require('./firebase-listener');
 const { getInstalledPrinters, printRaw } = require('./printer');
@@ -191,7 +192,30 @@ const LOCAL_PORT = 3010;
 let localServer = null;
 
 function startLocalServer() {
-  localServer = http.createServer((req, res) => {
+  const certPath = path.join(__dirname, 'assets', 'cert.pem');
+  const keyPath  = path.join(__dirname, 'assets', 'key.pem');
+
+  if (!fs.existsSync(certPath) || !fs.existsSync(keyPath)) {
+    console.error('[LocalServer] cert.pem or key.pem not found — falling back to HTTP');
+    localServer = require('http').createServer(handleRequest);
+  } else {
+    const sslOptions = {
+      cert: fs.readFileSync(certPath),
+      key:  fs.readFileSync(keyPath),
+    };
+    localServer = https.createServer(sslOptions, handleRequest);
+  }
+
+  localServer.listen(LOCAL_PORT, '127.0.0.1', () => {
+    console.log(`[LocalServer] Listening on https://local.reitrn.com:${LOCAL_PORT}`);
+  });
+
+  localServer.on('error', (err) => {
+    console.error('[LocalServer] Failed to start:', err.message);
+  });
+}
+
+function handleRequest(req, res) {
     // CORS + Chrome Private Network Access (required for https:// pages to reach localhost)
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
@@ -257,15 +281,6 @@ function startLocalServer() {
 
     res.writeHead(404);
     res.end();
-  });
-
-  localServer.listen(LOCAL_PORT, '127.0.0.1', () => {
-    console.log(`[LocalServer] Listening on http://127.0.0.1:${LOCAL_PORT}`);
-  });
-
-  localServer.on('error', (err) => {
-    console.error('[LocalServer] Failed to start:', err.message);
-  });
 }
 
 // ── Agent ──────────────────────────────────────────────────────────────────────

@@ -3,3 +3,5 @@ dist/
 out/
 .env
 *.log
+assets/cert.pem
+assets/key.pem

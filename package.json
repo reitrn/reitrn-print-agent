@@ -20,9 +20,13 @@
     "productName": "reitrn Print Agent",
     "copyright": "reitrn.",
     "win": {
-      "target": "nsis",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
       "icon": "assets/icon.ico",
-      "artifactName": "reitrn-Print-Agent-Setup.exe"
+      "artifactName": "reitrn-Print-Agent-Setup.exe",
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": true,

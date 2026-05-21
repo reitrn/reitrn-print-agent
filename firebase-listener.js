@@ -9,6 +9,7 @@ const {
   doc,
   updateDoc,
   setDoc,
+  deleteDoc,
   runTransaction,
   Timestamp,
 } = require('firebase/firestore');
@@ -35,6 +36,17 @@ let registeredStationName = null;
 async function registerStation({ name, courierPrinter = '', barcodePrinter = '' }) {
   try {
     const firestore = getDb();
+
+    // If the station was renamed, delete the old document so it doesn't linger
+    if (registeredStationName && registeredStationName !== name) {
+      try {
+        await deleteDoc(doc(firestore, 'printStations', registeredStationName));
+        console.log(`[Firebase] Deleted old station "${registeredStationName}"`);
+      } catch (e) {
+        console.warn('[Firebase] Could not delete old station doc:', e.message);
+      }
+    }
+
     registeredStationName = name;
     await setDoc(doc(firestore, 'printStations', name), {
       name,

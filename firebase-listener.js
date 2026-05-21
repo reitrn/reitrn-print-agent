@@ -1,5 +1,15 @@
-const { initializeApp, getApps } = require('firebase/compat/app');
-require('firebase/compat/firestore');
+const { initializeApp, getApps, getApp } = require('firebase/app');
+const {
+  getFirestore,
+  collection,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
+  doc,
+  updateDoc,
+  Timestamp,
+} = require('firebase/firestore');
 
 // ── Firebase config (same project as hub) ─────────────────────────────────────
 const firebaseConfig = {
@@ -16,8 +26,8 @@ let unsubscribe = null;
 
 function getDb() {
   if (!db) {
-    const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-    db = app.firestore();
+    const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+    db = getFirestore(app);
   }
   return db;
 }
@@ -31,12 +41,14 @@ function startListening({ onStatus, onJob }) {
     const firestore = getDb();
     onStatus('connecting');
 
-    const q = firestore
-      .collection('printJobs')
-      .where('status', '==', 'pending')
-      .orderBy('createdAt', 'asc');
+    const q = query(
+      collection(firestore, 'printJobs'),
+      where('status', '==', 'pending'),
+      orderBy('createdAt', 'asc'),
+    );
 
-    unsubscribe = q.onSnapshot(
+    unsubscribe = onSnapshot(
+      q,
       async (snap) => {
         onStatus('connected');
 
@@ -46,13 +58,16 @@ function startListening({ onStatus, onJob }) {
           const job = { id: change.doc.id, ...change.doc.data() };
 
           // Mark as printing to prevent other agents picking it up
-          await change.doc.ref.update({ status: 'printing', processingAt: new Date() });
+          await updateDoc(doc(firestore, 'printJobs', change.doc.id), {
+            status: 'printing',
+            processingAt: Timestamp.now(),
+          });
 
           const result = await onJob(job);
 
-          await change.doc.ref.update({
+          await updateDoc(doc(firestore, 'printJobs', change.doc.id), {
             status: result.success ? 'done' : 'error',
-            processedAt: new Date(),
+            processedAt: Timestamp.now(),
             ...(result.error ? { errorMessage: result.error } : {}),
           });
         }

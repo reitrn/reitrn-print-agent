@@ -199,14 +199,17 @@ ipcMain.handle('set-auto-start', (_, enabled) => {
 
 ipcMain.handle('test-print', async (_, printerName) => {
   const tspl = [
-    'SIZE 100 mm, 50 mm',
+    'SIZE 100 mm, 150 mm',  // <-- update if your label roll is a different size
     'GAP 3 mm, 0 mm',
     'DIRECTION 1',
+    'SPEED 4',
+    'DENSITY 8',
     'CLS',
-    'TEXT 50,30,"3",0,1,1,"reitrn."',
-    'TEXT 50,80,"2",0,1,1,"Print Agent — Test Label"',
-    'TEXT 50,120,"1",0,1,1,"Connected & working"',
+    'TEXT 50,50,"3",0,1,1,"reitrn."',
+    'TEXT 50,120,"2",0,1,1,"Print Agent Test"',
+    'TEXT 50,180,"1",0,1,1,"Connected & working"',
     'PRINT 1,1',
+    '',  // trailing \r\n so printer flushes the PRINT command
   ].join('\r\n');
 
   try {

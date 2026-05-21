@@ -71,7 +71,7 @@ function createWindow() {
     resizable: false,
     title: 'reitrn Print Agent',
     backgroundColor: '#FFFFFF',
-    icon: path.join(__dirname, 'assets', 'icon.ico'),
+    icon: path.join(__dirname, 'assets', nativeTheme.shouldUseDarkColors ? 'icon-dark.ico' : 'icon-light.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

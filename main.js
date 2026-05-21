@@ -254,7 +254,8 @@ function handleRequest(req, res) {
           res.end(JSON.stringify({ ok: true }));
 
           // Print in the background
-          printRaw(printerName, job.data)
+          const localData = renderJob({ ...job, printerRole: role }, printerName);
+          printRaw(printerName, localData)
             .then(() => addRecentJob({ id: localJobId, printer: printerName, status: 'done', time: new Date() }))
             .catch((err) => {
               console.error('[LocalServer] Print failed:', err.message);
@@ -324,19 +325,25 @@ function detectLang(printerName) {
 }
 
 function renderJob(job, printerName) {
-  // Legacy jobs have pre-rendered `data` string — pass through as-is
-  if (job.data) return job.data;
+  const lang = detectLang(printerName);
 
-  // New jobs have structured `labelData` — detect language from printer name
-  const lang   = detectLang(printerName);
-  const label  = job.labelData || {};
-  const role   = job.printerRole || 'barcode';
-  const width  = role === 'courier' ? 101.6 : 62;
-  const height = role === 'courier' ? 152.4 : 35;
+  // returnhub sends both zpl + tspl — pick the right one
+  if (job.zpl || job.tspl) {
+    return lang === 'tspl' ? (job.tspl || job.zpl) : (job.zpl || job.tspl);
+  }
 
-  return lang === 'tspl'
-    ? buildTSPL(label, width, height)
-    : buildZPL(label, width, height);
+  // Mobile app sends structured labelData — build here
+  if (job.labelData) {
+    const role   = job.printerRole || 'barcode';
+    const width  = role === 'courier' ? 101.6 : 62;
+    const height = role === 'courier' ? 152.4 : 35;
+    return lang === 'tspl'
+      ? buildTSPL(job.labelData, width, height)
+      : buildZPL(job.labelData, width, height);
+  }
+
+  // Legacy pre-rendered string — pass through as-is
+  return job.data || '';
 }
 
 // ── Agent ──────────────────────────────────────────────────────────────────────
@@ -435,37 +442,21 @@ ipcMain.handle('set-auto-start', (_, enabled) => {
 
 ipcMain.handle('test-print', async (_, printerName, role) => {
   const isCourier = role === 'courier';
+  const lang = detectLang(printerName);
 
-  const tspl = isCourier
-    ? [
-        'SIZE 4 inch, 6 inch',
-        'GAP 3 mm, 0 mm',
-        'DIRECTION 0,0',
-        'SPEED 4',
-        'DENSITY 8',
-        'CLS',
-        'TEXT 50,50,"4",0,1,1,"reitrn."',
-        'TEXT 50,120,"2",0,1,1,"Courier Printer Test"',
-        'TEXT 50,165,"1",0,1,1,"4 x 6 inch label - OK"',
-        'PRINT 1,1',
-        '',
-      ].join('\r\n')
-    : [
-        'SIZE 62 mm, 35 mm',
-        'GAP 2 mm, 0 mm',
-        'DIRECTION 0,0',
-        'SPEED 4',
-        'DENSITY 8',
-        'CLS',
-        'TEXT 8,5,"3",0,1,1,"reitrn."',
-        'TEXT 8,42,"1",0,1,1,"Barcode Printer Test"',
-        'BARCODE 8,65,"128",40,1,0,2,3,"TEST-001"',
-        'PRINT 1,1',
-        '',
-      ].join('\r\n');
+  let data;
+  if (lang === 'zpl') {
+    data = isCourier
+      ? ['^XA', '^PW812', '^LL1218', '^CF0,40', '^FO50,50^FDreitrn.^FS', '^CF0,28', '^FO50,110^FDCourier Printer Test^FS', '^FO50,160^FD4 x 6 inch label - OK^FS', '^XZ'].join('\n')
+      : ['^XA', '^PW496', '^LL280', '^CF0,36', '^FO20,20^FDreitrn.^FS', '^CF0,22', '^FO20,70^FDBarcode Printer Test^FS', '^FO20,110^BCN,60,Y,N,N^FDTEST-001^FS', '^XZ'].join('\n');
+  } else {
+    data = isCourier
+      ? ['SIZE 4 inch, 6 inch', 'GAP 3 mm, 0 mm', 'DIRECTION 0,0', 'SPEED 4', 'DENSITY 8', 'CLS', 'TEXT 50,50,"4",0,1,1,"reitrn."', 'TEXT 50,120,"2",0,1,1,"Courier Printer Test"', 'TEXT 50,165,"1",0,1,1,"4 x 6 inch label - OK"', 'PRINT 1,1', ''].join('\r\n')
+      : ['SIZE 62 mm, 35 mm', 'GAP 2 mm, 0 mm', 'DIRECTION 0,0', 'SPEED 4', 'DENSITY 8', 'CLS', 'TEXT 8,5,"3",0,1,1,"reitrn."', 'TEXT 8,42,"1",0,1,1,"Barcode Printer Test"', 'BARCODE 8,65,"128",40,1,0,2,3,"TEST-001"', 'PRINT 1,1', ''].join('\r\n');
+  }
 
   try {
-    await printRaw(printerName, tspl);
+    await printRaw(printerName, data);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };

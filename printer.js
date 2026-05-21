@@ -64,7 +64,8 @@ function printRaw(printerName, data) {
 }
 
 /**
- * PowerShell raw printing via WinSpool P/Invoke — most reliable Windows approach.
+ * PowerShell raw printing via WinSpool P/Invoke.
+ * Writes the PS script to a temp file to avoid inline command length/escaping issues.
  */
 function printViaPowerShell(printerName, data) {
   return new Promise((resolve, reject) => {
@@ -73,13 +74,15 @@ function printViaPowerShell(printerName, data) {
     const os   = require('os');
     const path = require('path');
 
-    const tmpFile = path.join(os.tmpdir(), `reitrn_${Date.now()}.prn`);
-    fs.writeFileSync(tmpFile, Buffer.from(data, 'utf8'));
+    const ts       = Date.now();
+    const dataFile = path.join(os.tmpdir(), `reitrn_${ts}.prn`);
+    const psFile   = path.join(os.tmpdir(), `reitrn_${ts}.ps1`);
 
-    const filePath      = tmpFile.replace(/\\/g, '\\\\');
+    fs.writeFileSync(dataFile, Buffer.from(data, 'utf8'));
+
+    // No backslash escaping — PowerShell single-quoted strings treat \ as literal
     const printerEscaped = printerName.replace(/'/g, "''");
 
-    // Use WinSpool API via PowerShell P/Invoke — the gold standard for raw Windows printing
     const script = `
 Add-Type -TypeDefinition @"
 using System;
@@ -98,26 +101,31 @@ public class WinSpool {
 "@
 $h = [IntPtr]::Zero
 [WinSpool]::OpenPrinter('${printerEscaped}', [ref]$h, [IntPtr]::Zero) | Out-Null
-$di = New-Object WinSpool+DOCINFO; $di.pDocName = 'reitrn'; $di.pDataType = 'RAW'
+$di = New-Object WinSpool+DOCINFO
+$di.pDocName   = 'reitrn'
+$di.pDataType  = 'RAW'
 [WinSpool]::StartDocPrinter($h, 1, [ref]$di) | Out-Null
 [WinSpool]::StartPagePrinter($h) | Out-Null
-$bytes = [System.IO.File]::ReadAllBytes('${filePath}')
-$ptr = [Runtime.InteropServices.Marshal]::AllocHGlobal($bytes.Length)
+$bytes = [System.IO.File]::ReadAllBytes('${dataFile}')
+$ptr   = [Runtime.InteropServices.Marshal]::AllocHGlobal($bytes.Length)
 [Runtime.InteropServices.Marshal]::Copy($bytes, 0, $ptr, $bytes.Length)
-$w = 0; [WinSpool]::WritePrinter($h, $ptr, $bytes.Length, [ref]$w) | Out-Null
+$w = 0
+[WinSpool]::WritePrinter($h, $ptr, $bytes.Length, [ref]$w) | Out-Null
 [Runtime.InteropServices.Marshal]::FreeHGlobal($ptr)
 [WinSpool]::EndPagePrinter($h) | Out-Null
 [WinSpool]::EndDocPrinter($h) | Out-Null
 [WinSpool]::ClosePrinter($h) | Out-Null
-Remove-Item '${filePath}' -Force
 `;
+
+    fs.writeFileSync(psFile, script, 'utf8');
 
     execFile(
       'powershell',
-      ['-NoProfile', '-NonInteractive', '-Command', script],
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psFile],
       { timeout: 15000 },
       (err, stdout, stderr) => {
-        try { fs.unlinkSync(tmpFile); } catch {}
+        try { fs.unlinkSync(dataFile); } catch {}
+        try { fs.unlinkSync(psFile);   } catch {}
         if (err) reject(new Error(stderr || err.message));
         else resolve();
       },

@@ -89,7 +89,16 @@ function createTray() {
   let icon;
   try {
     icon = nativeImage.createFromPath(iconPath);
-  } catch {
+    if (icon.isEmpty()) {
+      console.warn('[Tray] Icon loaded but is empty — check assets/tray.png exists');
+      icon = nativeImage.createEmpty();
+    } else {
+      // Resize to standard Windows tray icon size
+      icon = icon.resize({ width: 16, height: 16 });
+      console.log('[Tray] Icon loaded OK from', iconPath);
+    }
+  } catch (e) {
+    console.warn('[Tray] Failed to load icon:', e.message);
     icon = nativeImage.createEmpty();
   }
 

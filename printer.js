@@ -85,7 +85,7 @@ function printViaPowerShell(printerName, data) {
 
     fs.writeFileSync(dataFile, Buffer.from(data, 'utf8'));
 
-    // No backslash escaping — PowerShell single-quoted strings treat \ as literal
+    // No backslash escaping - PowerShell single-quoted strings treat \ as literal
     const printerEscaped = printerName.replace(/'/g, "''");
 
     const script = `
@@ -105,24 +105,35 @@ public class WinSpool {
 }
 "@
 $h = [IntPtr]::Zero
-[WinSpool]::OpenPrinter('${printerEscaped}', [ref]$h, [IntPtr]::Zero) | Out-Null
+$opened = [WinSpool]::OpenPrinter('${printerEscaped}', [ref]$h, [IntPtr]::Zero)
+if (-not $opened -or $h -eq [IntPtr]::Zero) {
+  Write-Error "OpenPrinter failed for '${printerEscaped}' - check printer name matches exactly"
+  exit 1
+}
+Write-Host "OpenPrinter OK, handle=$h"
 $di = New-Object WinSpool+DOCINFO
-$di.pDocName   = 'reitrn'
-$di.pDataType  = 'RAW'
-[WinSpool]::StartDocPrinter($h, 1, [ref]$di) | Out-Null
+$di.pDocName  = 'reitrn'
+$di.pDataType = 'RAW'
+$jobId = [WinSpool]::StartDocPrinter($h, 1, [ref]$di)
+if ($jobId -le 0) { Write-Error "StartDocPrinter failed"; [WinSpool]::ClosePrinter($h); exit 1 }
+Write-Host "StartDocPrinter OK, jobId=$jobId"
 [WinSpool]::StartPagePrinter($h) | Out-Null
 $bytes = [System.IO.File]::ReadAllBytes('${dataFile}')
-$ptr   = [Runtime.InteropServices.Marshal]::AllocHGlobal($bytes.Length)
+Write-Host "Sending $($bytes.Length) bytes to printer"
+$ptr = [Runtime.InteropServices.Marshal]::AllocHGlobal($bytes.Length)
 [Runtime.InteropServices.Marshal]::Copy($bytes, 0, $ptr, $bytes.Length)
 $w = 0
-[WinSpool]::WritePrinter($h, $ptr, $bytes.Length, [ref]$w) | Out-Null
+$wrote = [WinSpool]::WritePrinter($h, $ptr, $bytes.Length, [ref]$w)
 [Runtime.InteropServices.Marshal]::FreeHGlobal($ptr)
+Write-Host "WritePrinter result=$wrote, bytesWritten=$w"
 [WinSpool]::EndPagePrinter($h) | Out-Null
 [WinSpool]::EndDocPrinter($h) | Out-Null
 [WinSpool]::ClosePrinter($h) | Out-Null
+Write-Host "Done"
 `;
 
-    fs.writeFileSync(psFile, script, 'utf8');
+    // Write as UTF-16 LE with BOM — PowerShell 5.1 reads this natively without encoding issues
+    fs.writeFileSync(psFile, Buffer.from('﻿' + script, 'utf16le'));
 
     execFile(
       'powershell',

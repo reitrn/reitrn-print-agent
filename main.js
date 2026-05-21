@@ -8,9 +8,14 @@ const store = new Store();
 
 let mainWindow = null;
 let tray = null;
+// Load persisted jobs immediately after store is ready
+let recentJobs = (store.get('recentJobs', []) || []).map((j) => ({
+  ...j,
+  // Timestamps are serialised as strings — convert back to Date for display
+  time: j.time ? new Date(j.time) : new Date(),
+}));
 let isListening = false;
 let connectionStatus = 'disconnected'; // 'connected' | 'connecting' | 'disconnected' | 'error'
-let recentJobs = [];
 
 // ── App setup ──────────────────────────────────────────────────────────────────
 
@@ -179,7 +184,8 @@ function setStatus(status) {
 }
 
 function addRecentJob(job) {
-  recentJobs = [job, ...recentJobs].slice(0, 20);
+  recentJobs = [job, ...recentJobs].slice(0, 50);
+  store.set('recentJobs', recentJobs); // persist across restarts
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('jobs-update', recentJobs);
   }

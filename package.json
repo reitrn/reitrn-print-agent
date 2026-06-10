@@ -1,6 +1,6 @@
 {
   "name": "reitrn-print-agent",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "reitrn. Print Agent — local USB print server",
   "main": "main.js",
   "scripts": {

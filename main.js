@@ -228,6 +228,7 @@ function handleRequest(req, res) {
         barcodePrinter:  store.get('barcodePrinter', ''),
         agentName:       store.get('agentName', 'Warehouse PC'),
         hostname:        os.hostname(), // unique per PC — lets the app identify the station automatically
+        version:         app.getVersion(), // so the app can show up-to-date / update-available
       }));
       return;
     }

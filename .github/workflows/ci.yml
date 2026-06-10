@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Syntax-check all JS files
+        run: |
+          set -e
+          find . -name '*.js' -not -path './node_modules/*' -not -path './dist/*' -print0 \
+            | xargs -0 -n1 node --check

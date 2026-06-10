@@ -4,6 +4,22 @@ Electron tray app for warehouse PCs that prints thermal labels (ZPL/TSPL) on USB
 printers. Full-featured variant — connects to Firebase AND serves a local HTTP(S)
 API. Repo: github.com/reitrn/reitrn-print-agent. Windows-only.
 
+## Working rules (regression prevention)
+
+This runs unattended on live warehouse PCs — a broken build means labels stop
+printing and receiving stalls.
+
+1. **Plain JS, no compiler net**: after ANY change, run `node --check` on every
+   touched file and start the app (`npm start`) before declaring done. CI
+   syntax-checks all JS on push (`.github/workflows/ci.yml`); the existing
+   build.yml also packages on every master push.
+2. **One concern per change**; no drive-by refactors.
+3. Printing has a deliberate fallback chain (USB direct → PowerShell → copy /b →
+   WinSpool) — never simplify it away; each layer exists because the previous
+   one failed on some warehouse PC.
+4. PowerShell helper scripts must stay UTF-16 LE with BOM, written to temp files
+   (inline -Command breaks; avoid em dashes in PS strings).
+
 ## Stack
 
 - Electron 28 + electron-builder (NSIS + portable, x64), no framework in renderer

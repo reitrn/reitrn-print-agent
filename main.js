@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, nativeTheme } = require('electron');
 const path = require('path');
+const os = require('os');
 const https = require('https');
 const fs = require('fs');
 const Store = require('electron-store');
@@ -226,6 +227,7 @@ function handleRequest(req, res) {
         courierPrinter:  store.get('courierPrinter', ''),
         barcodePrinter:  store.get('barcodePrinter', ''),
         agentName:       store.get('agentName', 'Warehouse PC'),
+        hostname:        os.hostname(), // unique per PC — lets the app identify the station automatically
       }));
       return;
     }

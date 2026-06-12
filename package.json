@@ -1,6 +1,6 @@
 {
   "name": "reitrn-print-agent",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "reitrn. Print Agent — local USB print server",
   "main": "main.js",
   "scripts": {
@@ -21,12 +21,21 @@
     "copyright": "reitrn.",
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "assets/icon.ico",
-      "artifactName": "reitrn-Print-Agent-Setup.exe",
-      "signAndEditExecutable": false
+      "artifactName": "reitrn-Print-Agent-Setup.exe"
     },
     "nsis": {
       "oneClick": true,

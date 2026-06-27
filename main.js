@@ -528,7 +528,11 @@ ipcMain.handle('test-print', async (_, printerName, role) => {
   }
 
   try {
-    await printRaw(printerName, data);
+    if (printerName === PDF_PRINTER) {
+      await saveLabelAsPdf(data, role);
+    } else {
+      await printRaw(printerName, data);
+    }
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };

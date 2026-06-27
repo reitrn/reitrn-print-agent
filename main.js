@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, nativeTheme } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, nativeTheme, shell } = require('electron');
 const path = require('path');
 const os = require('os');
 const https = require('https');
@@ -264,8 +264,8 @@ function handleRequest(req, res) {
             addRecentJob({ id: localJobId, printer: printerName, status: 'error', time: new Date(), error: 'No printable data in job' });
             return;
           }
-          printRaw(printerName, localData)
-            .then(() => addRecentJob({ id: localJobId, printer: printerName, status: 'done', time: new Date() }))
+          (printerName === PDF_PRINTER ? saveLabelAsPdf(localData, role).then(() => {}) : printRaw(printerName, localData))
+            .then(() => addRecentJob({ id: localJobId, printer: printerName === PDF_PRINTER ? 'Save as PDF' : printerName, status: 'done', time: new Date() }))
             .catch((err) => {
               console.error('[LocalServer] Print failed:', err.message);
               addRecentJob({ id: localJobId, printer: printerName, status: 'error', time: new Date(), error: err.message });
@@ -367,6 +367,43 @@ function refreshStationRegistration() {
   });
 }
 
+// "Save as PDF (testing)" pseudo-printer — when selected, render the label's ZPL
+// to a real PDF (via Labelary, sized from the ZPL's ^PW/^LL) and open it, instead
+// of sending raw ZPL to a physical printer. Lets you test labels with no Zebra.
+const PDF_PRINTER = '__PDF__';
+function saveLabelAsPdf(zpl, role) {
+  return new Promise((resolve, reject) => {
+    const pw = parseInt((zpl.match(/\^PW(\d+)/) || [])[1] || '0', 10);
+    const ll = parseInt((zpl.match(/\^LL(\d+)/) || [])[1] || '0', 10);
+    const wIn = (pw ? pw / 203 : (role === 'courier' ? 4 : 2.44)).toFixed(2);
+    const hIn = (ll ? ll / 203 : (role === 'courier' ? 6 : 1.38)).toFixed(2);
+    const opts = {
+      hostname: 'api.labelary.com',
+      path: `/v1/printers/8dpmm/labels/${wIn}x${hIn}/0/`,
+      method: 'POST',
+      headers: { Accept: 'application/pdf', 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(zpl) },
+    };
+    const req = https.request(opts, (res) => {
+      if (res.statusCode !== 200) { res.resume(); reject(new Error(`Labelary HTTP ${res.statusCode}`)); return; }
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        try {
+          const dir = path.join(app.getPath('downloads'), 'reitrn-labels');
+          fs.mkdirSync(dir, { recursive: true });
+          const file = path.join(dir, `label-${role}-${Date.now()}.pdf`);
+          fs.writeFileSync(file, Buffer.concat(chunks));
+          shell.openPath(file);
+          resolve(file);
+        } catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.write(zpl);
+    req.end();
+  });
+}
+
 function startAgent() {
   setStatus('connecting');
   startLocalServer();
@@ -399,6 +436,11 @@ function startAgent() {
       addRecentJob({ id: job.id, printer: printerName, printerRole: role, status: 'printing', time: new Date() });
 
       try {
+        if (printerName === PDF_PRINTER) {
+          const file = await saveLabelAsPdf(data, role);
+          addRecentJob({ id: job.id, printer: 'Save as PDF', status: 'done', time: new Date() });
+          return { success: true, file };
+        }
         await printRaw(printerName, data);
         addRecentJob({ id: job.id, printer: printerName, status: 'done', time: new Date() });
         return { success: true };

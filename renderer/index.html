@@ -432,6 +432,12 @@
         const sel = document.getElementById(id);
         const cur = id === 'courierSelect' ? courierPrinter : barcodePrinter;
         sel.innerHTML = '<option value="">Select a printer…</option>';
+        // Testing pseudo-printer: render the label to a PDF + open it (no Zebra needed).
+        const pdfOpt = document.createElement('option');
+        pdfOpt.value = '__PDF__';
+        pdfOpt.textContent = '💾 Save as PDF (testing)';
+        if (cur === '__PDF__') pdfOpt.selected = true;
+        sel.appendChild(pdfOpt);
         printers.forEach((name) => {
           const opt = document.createElement('option');
           opt.value = name;
